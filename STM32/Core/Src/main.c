@@ -25,6 +25,7 @@
 
 #include "lis3dh_reg.h"
 #include "lis3dh_driver.h"
+#include "BMP390.h"
 
 /* USER CODE END Includes */
 
@@ -52,12 +53,19 @@ SPI_HandleTypeDef hspi3;
 TIM_HandleTypeDef htim8;
 DMA_HandleTypeDef hdma_tim8_ch1;
 
+UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
 UART_HandleTypeDef huart3;
 
 osThreadId defaultTaskHandle;
+uint32_t defaultTaskBuffer[ 256 ];
+osStaticThreadDef_t defaultTaskControlBlock;
 osThreadId sensorReadTaskHandle;
+uint32_t sensorReadTaskBuffer[ 256 ];
+osStaticThreadDef_t sensorReadTaskControlBlock;
 /* USER CODE BEGIN PV */
+
+BMP390_HandleTypeDef hbmp390;
 
 /* USER CODE END PV */
 
@@ -71,6 +79,7 @@ static void MX_SPI3_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_USART3_UART_Init(void);
 static void MX_TIM8_Init(void);
+static void MX_USART1_UART_Init(void);
 void StartDefaultTask(void const * argument);
 void StartSensorReadTask(void const * argument);
 
@@ -81,14 +90,18 @@ void StartSensorReadTask(void const * argument);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-// print out debug using swd
-int _write(int file, char *ptr, int len)
-{
-    for (int i = 0; i < len; i++)
-    {
-        ITM_SendChar((*ptr++));
-    }
+// Map printf to UART
+int _write(int file, char *ptr, int len) {
+    HAL_UART_Transmit_IT(&huart1, (uint8_t *) ptr, len);
     return len;
+}
+
+void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
+{
+    if (huart->Instance == USART1)
+    {
+        // Transmission completed
+    }
 }
 
 /* USER CODE END 0 */
@@ -128,6 +141,7 @@ int main(void)
   MX_USART2_UART_Init();
   MX_USART3_UART_Init();
   MX_TIM8_Init();
+  MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
     HAL_GPIO_TogglePin(LED_GREEN_GPIO_Port, LED_GREEN_Pin);
 
@@ -135,10 +149,19 @@ int main(void)
     TIM8->CCR1 = 200; // This is the duty cycle (2800/3000 = 93.3% of time on, 6.7% of time off - and it lights when it is off)
     HAL_TIM_PWM_Start(&htim8, TIM_CHANNEL_1);
 
+    // BMP390
+    hbmp390._hi2c = &hi2c1;
+    BMP390_Init(&hbmp390);
 
-    // initialize the LIS3DH sensor
-    stmdev_ctx_t lowg_ctx;
+    printf("par_t1: %f\n", hbmp390._calib_data.par_t1);
+    printf("par_t2: %f\n", hbmp390._calib_data.par_t2);
+    printf("par_t3: %f\n", hbmp390._calib_data.par_t3);
 
+//    BMP390_StartNormalModeFIFO(&hbmp388);
+    BMP390_SetTempOS(&hbmp390, BMP390_NO_OVERSAMPLING);
+    BMP390_SetPressOS(&hbmp390, BMP390_OVERSAMPLING_8X);
+    BMP390_SetIIRFilterCoeff(&hbmp390, BMP3_IIR_FILTER_COEFF_7);
+    BMP390_SetOutputDataRate(&hbmp390, BMP3_ODR_25_HZ);
 
   /* USER CODE END 2 */
 
@@ -160,11 +183,11 @@ int main(void)
 
   /* Create the thread(s) */
   /* definition and creation of defaultTask */
-  osThreadDef(defaultTask, StartDefaultTask, osPriorityNormal, 0, 256);
+  osThreadStaticDef(defaultTask, StartDefaultTask, osPriorityNormal, 0, 256, defaultTaskBuffer, &defaultTaskControlBlock);
   defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
 
   /* definition and creation of sensorReadTask */
-  osThreadDef(sensorReadTask, StartSensorReadTask, osPriorityIdle, 0, 256);
+  osThreadStaticDef(sensorReadTask, StartSensorReadTask, osPriorityIdle, 0, 256, sensorReadTaskBuffer, &sensorReadTaskControlBlock);
   sensorReadTaskHandle = osThreadCreate(osThread(sensorReadTask), NULL);
 
   /* USER CODE BEGIN RTOS_THREADS */
@@ -182,9 +205,8 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-
-
-
+//    printf("Hello, world!\n");
+    osDelay(1000);
   }
   /* USER CODE END 3 */
 }
@@ -446,6 +468,41 @@ static void MX_TIM8_Init(void)
 }
 
 /**
+  * @brief USART1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART1_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART1_Init 0 */
+
+  /* USER CODE END USART1_Init 0 */
+
+  /* USER CODE BEGIN USART1_Init 1 */
+
+  /* USER CODE END USART1_Init 1 */
+  huart1.Instance = USART1;
+  huart1.Init.BaudRate = 115200;
+  huart1.Init.WordLength = UART_WORDLENGTH_8B;
+  huart1.Init.StopBits = UART_STOPBITS_1;
+  huart1.Init.Parity = UART_PARITY_NONE;
+  huart1.Init.Mode = UART_MODE_TX_RX;
+  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
+  huart1.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+  huart1.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+  if (HAL_UART_Init(&huart1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART1_Init 2 */
+
+  /* USER CODE END USART1_Init 2 */
+
+}
+
+/**
   * @brief USART2 Initialization Function
   * @param None
   * @retval None
@@ -616,7 +673,6 @@ void StartDefaultTask(void const * argument)
   {
       HAL_GPIO_TogglePin(LED_RED_GPIO_Port, LED_RED_Pin);
       HAL_GPIO_TogglePin(LED_GREEN_GPIO_Port, LED_GREEN_Pin);
-//      HAL_GPIO_TogglePin(INDICATOR_T_GPIO_Port, INDICATOR_T_Pin);
       osDelay(1000);
   }
   /* USER CODE END 5 */
@@ -628,12 +684,39 @@ void StartDefaultTask(void const * argument)
 * @param argument: Not used
 * @retval None
 */
+
+
+
 /* USER CODE END Header_StartSensorReadTask */
 void StartSensorReadTask(void const * argument)
 {
   /* USER CODE BEGIN StartSensorReadTask */
   /* Infinite loop */
-  lis3dh_read_fifo();
+//  lis3dh_read_fifo();
+
+    // Declare a buffer to hold the raw data
+    uint8_t raw_data[512]; // Adjust the size as needed
+
+// Get the raw data from the FIFO
+    uint32_t raw_pressure;
+    uint32_t raw_temperature;
+    uint32_t time;
+    float pressure;
+    float temperature;
+    while(1) {
+
+    if(BMP390_ReadRawPressTempTime(&hbmp390, &raw_pressure, &raw_temperature, &time) != HAL_OK)
+    {
+        Error_Handler();
+    }
+    printf("Raw Pressure: %d, Raw Temperature: %d, Time: %d\n", raw_pressure, raw_temperature, time);
+    BMP390_CompensateRawPressTemp(&hbmp390, raw_pressure, raw_temperature, &pressure, &temperature);
+    osDelay(100);
+    printf("Pressure: %f, Temperature: %f\n", pressure, temperature);
+    osDelay(900);
+    }
+
+// Now raw_data contains the raw data read from the FIFO
   /* USER CODE END StartSensorReadTask */
 }
 
