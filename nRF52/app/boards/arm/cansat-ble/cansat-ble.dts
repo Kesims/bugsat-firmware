@@ -19,7 +19,7 @@
             label = "LED 1";
         };
         led2: led_2 {
-            gpios = <&gpio0 5 GPIO_ACTIVE_HIGH>;
+            gpios = <&gpio0 5 GPIO_ACTIVE_LOW>;
             label = "LED 2";
         };
     };

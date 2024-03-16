@@ -19,6 +19,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "cmsis_os.h"
+#include "fatfs.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -26,6 +27,9 @@
 #include "lis3dh_reg.h"
 #include "lis3dh_driver.h"
 #include "BMP390.h"
+#include "debug_printf.h"
+#include <stdio.h>
+#include "indicator_utils.h"
 
 /* USER CODE END Includes */
 
@@ -50,7 +54,9 @@ I2C_HandleTypeDef hi2c1;
 SPI_HandleTypeDef hspi1;
 SPI_HandleTypeDef hspi3;
 
+TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim8;
+TIM_HandleTypeDef htim17;
 DMA_HandleTypeDef hdma_tim8_ch1;
 
 UART_HandleTypeDef huart1;
@@ -58,14 +64,24 @@ UART_HandleTypeDef huart2;
 UART_HandleTypeDef huart3;
 
 osThreadId defaultTaskHandle;
-uint32_t defaultTaskBuffer[ 256 ];
+uint32_t defaultTaskBuffer[ 2048 ];
 osStaticThreadDef_t defaultTaskControlBlock;
 osThreadId sensorReadTaskHandle;
-uint32_t sensorReadTaskBuffer[ 256 ];
+uint32_t sensorReadTaskBuffer[ 512 ];
 osStaticThreadDef_t sensorReadTaskControlBlock;
+osThreadId indicatorTaskHandle;
+uint32_t indicatorTaskBuffer[ 256 ];
+osStaticThreadDef_t indicatorTaskControlBlock;
 /* USER CODE BEGIN PV */
 
 BMP390_HandleTypeDef hbmp390;
+
+//Mount the SD Card
+FATFS fs;  // file system
+FIL fil; // File
+FILINFO fno;
+FRESULT fresult;  // result
+UINT br, bw;  // File read/write count
 
 /* USER CODE END PV */
 
@@ -80,8 +96,11 @@ static void MX_USART2_UART_Init(void);
 static void MX_USART3_UART_Init(void);
 static void MX_TIM8_Init(void);
 static void MX_USART1_UART_Init(void);
+static void MX_TIM17_Init(void);
+static void MX_TIM3_Init(void);
 void StartDefaultTask(void const * argument);
 void StartSensorReadTask(void const * argument);
+void StartIndicatorTask(void const * argument);
 
 /* USER CODE BEGIN PFP */
 
@@ -102,6 +121,7 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
     {
         // Transmission completed
     }
+
 }
 
 /* USER CODE END 0 */
@@ -142,26 +162,42 @@ int main(void)
   MX_USART3_UART_Init();
   MX_TIM8_Init();
   MX_USART1_UART_Init();
+  MX_FATFS_Init();
+  MX_TIM17_Init();
+  MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
+
+    debugPrint("Device starting...\n");
+
+
     HAL_GPIO_TogglePin(LED_GREEN_GPIO_Port, LED_GREEN_Pin);
 
     // PWM configuration for INDICATOR
-    TIM8->CCR1 = 200; // This is the duty cycle (2800/3000 = 93.3% of time on, 6.7% of time off - and it lights when it is off)
+    TIM8->CCR1 = 200; // This is the duty cycle (2800/3000 = 93.3% of time o// n, 6.7% of time off - and it lights when it is off)
     HAL_TIM_PWM_Start(&htim8, TIM_CHANNEL_1);
+
+    // PWM configuration for PIEZO
+    TIM3->CCR1 = 14000;
+//    HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1); // Do not start the PWM right away.
+
+
 
     // BMP390
     hbmp390._hi2c = &hi2c1;
     BMP390_Init(&hbmp390);
 
-    printf("par_t1: %f\n", hbmp390._calib_data.par_t1);
-    printf("par_t2: %f\n", hbmp390._calib_data.par_t2);
-    printf("par_t3: %f\n", hbmp390._calib_data.par_t3);
+//    printf("par_t1: %f\n", hbmp390._calib_data.par_t1);
+//    printf("par_t2: %f\n", hbmp390._calib_data.par_t2);
+//    printf("par_t3: %f\n", hbmp390._calib_data.par_t3);
 
 //    BMP390_StartNormalModeFIFO(&hbmp388);
     BMP390_SetTempOS(&hbmp390, BMP390_NO_OVERSAMPLING);
     BMP390_SetPressOS(&hbmp390, BMP390_OVERSAMPLING_8X);
     BMP390_SetIIRFilterCoeff(&hbmp390, BMP3_IIR_FILTER_COEFF_7);
     BMP390_SetOutputDataRate(&hbmp390, BMP3_ODR_25_HZ);
+
+
+
 
   /* USER CODE END 2 */
 
@@ -183,12 +219,16 @@ int main(void)
 
   /* Create the thread(s) */
   /* definition and creation of defaultTask */
-  osThreadStaticDef(defaultTask, StartDefaultTask, osPriorityNormal, 0, 256, defaultTaskBuffer, &defaultTaskControlBlock);
+  osThreadStaticDef(defaultTask, StartDefaultTask, osPriorityNormal, 0, 2048, defaultTaskBuffer, &defaultTaskControlBlock);
   defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
 
   /* definition and creation of sensorReadTask */
-  osThreadStaticDef(sensorReadTask, StartSensorReadTask, osPriorityIdle, 0, 256, sensorReadTaskBuffer, &sensorReadTaskControlBlock);
+  osThreadStaticDef(sensorReadTask, StartSensorReadTask, osPriorityNormal, 0, 512, sensorReadTaskBuffer, &sensorReadTaskControlBlock);
   sensorReadTaskHandle = osThreadCreate(osThread(sensorReadTask), NULL);
+
+  /* definition and creation of indicatorTask */
+  osThreadStaticDef(indicatorTask, StartIndicatorTask, osPriorityNormal, 0, 256, indicatorTaskBuffer, &indicatorTaskControlBlock);
+  indicatorTaskHandle = osThreadCreate(osThread(indicatorTask), NULL);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -366,11 +406,11 @@ static void MX_SPI3_Init(void)
   hspi3.Instance = SPI3;
   hspi3.Init.Mode = SPI_MODE_MASTER;
   hspi3.Init.Direction = SPI_DIRECTION_2LINES;
-  hspi3.Init.DataSize = SPI_DATASIZE_4BIT;
+  hspi3.Init.DataSize = SPI_DATASIZE_8BIT;
   hspi3.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi3.Init.CLKPhase = SPI_PHASE_1EDGE;
-  hspi3.Init.NSS = SPI_NSS_HARD_OUTPUT;
-  hspi3.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;
+  hspi3.Init.NSS = SPI_NSS_SOFT;
+  hspi3.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_32;
   hspi3.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi3.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi3.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
@@ -384,6 +424,65 @@ static void MX_SPI3_Init(void)
   /* USER CODE BEGIN SPI3_Init 2 */
 
   /* USER CODE END SPI3_Init 2 */
+
+}
+
+/**
+  * @brief TIM3 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM3_Init(void)
+{
+
+  /* USER CODE BEGIN TIM3_Init 0 */
+
+  /* USER CODE END TIM3_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+
+  /* USER CODE BEGIN TIM3_Init 1 */
+
+  /* USER CODE END TIM3_Init 1 */
+  htim3.Instance = TIM3;
+  htim3.Init.Prescaler = 0;
+  htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim3.Init.Period = 20000;
+  htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim3, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_Init(&htim3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM3_Init 2 */
+
+  /* USER CODE END TIM3_Init 2 */
+  HAL_TIM_MspPostInit(&htim3);
 
 }
 
@@ -464,6 +563,38 @@ static void MX_TIM8_Init(void)
 
   /* USER CODE END TIM8_Init 2 */
   HAL_TIM_MspPostInit(&htim8);
+
+}
+
+/**
+  * @brief TIM17 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM17_Init(void)
+{
+
+  /* USER CODE BEGIN TIM17_Init 0 */
+
+  /* USER CODE END TIM17_Init 0 */
+
+  /* USER CODE BEGIN TIM17_Init 1 */
+
+  /* USER CODE END TIM17_Init 1 */
+  htim17.Instance = TIM17;
+  htim17.Init.Prescaler = 0;
+  htim17.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim17.Init.Period = 63999;
+  htim17.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim17.Init.RepetitionCounter = 0;
+  htim17.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim17) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM17_Init 2 */
+
+  /* USER CODE END TIM17_Init 2 */
 
 }
 
@@ -607,10 +738,10 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOD_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, LORA_RST_Pin|GPIO_PIN_4|LED_RED_Pin|LED_GREEN_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, SPI3_CS_Pin|TRIGGER_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(TRIGGER_GPIO_Port, TRIGGER_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, LORA_RST_Pin|LED_RED_Pin|LED_GREEN_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pins : BTN_USER_Pin BMP_INT_Pin LIS3_INT1_Pin LIS3_INT2_Pin */
   GPIO_InitStruct.Pin = BTN_USER_Pin|BMP_INT_Pin|LIS3_INT1_Pin|LIS3_INT2_Pin;
@@ -618,8 +749,15 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : LORA_RST_Pin PB4 LED_RED_Pin LED_GREEN_Pin */
-  GPIO_InitStruct.Pin = LORA_RST_Pin|GPIO_PIN_4|LED_RED_Pin|LED_GREEN_Pin;
+  /*Configure GPIO pins : SPI3_CS_Pin TRIGGER_Pin */
+  GPIO_InitStruct.Pin = SPI3_CS_Pin|TRIGGER_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : LORA_RST_Pin LED_RED_Pin LED_GREEN_Pin */
+  GPIO_InitStruct.Pin = LORA_RST_Pin|LED_RED_Pin|LED_GREEN_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
@@ -630,13 +768,6 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : TRIGGER_Pin */
-  GPIO_InitStruct.Pin = TRIGGER_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(TRIGGER_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : H3LIS_INT1_Pin H3LIS_INT2_Pin */
   GPIO_InitStruct.Pin = H3LIS_INT1_Pin|H3LIS_INT2_Pin;
@@ -668,13 +799,50 @@ static void MX_GPIO_Init(void)
 void StartDefaultTask(void const * argument)
 {
   /* USER CODE BEGIN 5 */
+    fresult = f_mount(&fs, "/", 1);    //1=mount now
+
+    if (fresult != FR_OK)
+    {
+        debugPrintf("No SD Card found : (%i)\r\n", fresult);
+    }
+    debugPrint("SD Card Mounted Successfully!!!\r\n");
+    //Read the SD Card Total size and Free Size
+    FATFS *pfs;
+    DWORD fre_clust;
+    uint32_t totalSpace, freeSpace;
+    f_getfree("", &fre_clust, &pfs);
+    totalSpace = (uint32_t)((pfs->n_fatent - 2) * pfs->csize * 0.5);
+    freeSpace = (uint32_t)(fre_clust * pfs->csize * 0.5);
+    printf("TotalSpace : %lu bytes, FreeSpace = %lu bytes\n", totalSpace, freeSpace);
+    //Open the file
+    fresult = f_open(&fil, "test.txt", FA_WRITE | FA_READ | FA_CREATE_ALWAYS);
+    if(fresult != FR_OK)
+    {
+        printf("File creation/open Error : (%i)\r\n", fresult);
+    }
+    printf("Writing data!!!\r\n");
+    //write the data
+    f_puts("Cansat test input on the SD card.", &fil);
+    //close your file
+    f_close(&fil);
+
+
   /* Infinite loop */
-  for(;;)
-  {
-      HAL_GPIO_TogglePin(LED_RED_GPIO_Port, LED_RED_Pin);
-      HAL_GPIO_TogglePin(LED_GREEN_GPIO_Port, LED_GREEN_Pin);
-      osDelay(1000);
-  }
+    for(;;)
+    {
+        uint32_t startTick = HAL_GetTick();
+        uint32_t currentTick;
+
+        do {
+//            HAL_GPIO_TogglePin(PIEZO_GPIO_Port, PIEZO_Pin);
+            for(int i = 0; i < 2800; i++)
+            currentTick = HAL_GetTick();
+        } while((currentTick - startTick) < 180);
+
+        osDelay(820);
+        HAL_GPIO_TogglePin(LED_RED_GPIO_Port, LED_RED_Pin);
+        HAL_GPIO_TogglePin(LED_GREEN_GPIO_Port, LED_GREEN_Pin);
+    }
   /* USER CODE END 5 */
 }
 
@@ -694,30 +862,49 @@ void StartSensorReadTask(void const * argument)
   /* Infinite loop */
 //  lis3dh_read_fifo();
 
-    // Declare a buffer to hold the raw data
-    uint8_t raw_data[512]; // Adjust the size as needed
-
 // Get the raw data from the FIFO
     uint32_t raw_pressure;
     uint32_t raw_temperature;
     uint32_t time;
     float pressure;
     float temperature;
+    int res;
     while(1) {
-
-    if(BMP390_ReadRawPressTempTime(&hbmp390, &raw_pressure, &raw_temperature, &time) != HAL_OK)
-    {
-        Error_Handler();
+        res = BMP390_ReadRawPressTempTime(&hbmp390, &raw_pressure, &raw_temperature, &time);
+        if(res != HAL_OK)
+        {
+            debugPrintf("Error reading raw pressure and temperature: error %d\n", res);
+        }
+        debugPrintf("Raw Pressure: %lu, Raw Temperature: %lu, Time: %lu\n", raw_pressure, raw_temperature, time);
+        BMP390_CompensateRawPressTemp(&hbmp390, raw_pressure, raw_temperature, &pressure, &temperature);
+        osDelay(100);
+        debugPrintf("Pressure: %f, Temperature: %f\n", pressure, temperature);
+        osDelay(900);
     }
-    printf("Raw Pressure: %d, Raw Temperature: %d, Time: %d\n", raw_pressure, raw_temperature, time);
-    BMP390_CompensateRawPressTemp(&hbmp390, raw_pressure, raw_temperature, &pressure, &temperature);
-    osDelay(100);
-    printf("Pressure: %f, Temperature: %f\n", pressure, temperature);
-    osDelay(900);
-    }
 
-// Now raw_data contains the raw data read from the FIFO
+  // Now raw_data contains the raw data read from the FIFO
   /* USER CODE END StartSensorReadTask */
+}
+
+/* USER CODE BEGIN Header_StartIndicatorTask */
+/**
+* @brief Function implementing the indicatorTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartIndicatorTask */
+void StartIndicatorTask(void const * argument)
+{
+  /* USER CODE BEGIN StartIndicatorTask */
+  indicate_startup();
+  debugPrint("Indicator task started\n");
+  /* Infinite loop */
+//  for(;;)
+//  {
+//    process_indication_state();
+//    osDelay(1);
+//  }
+  /* USER CODE END StartIndicatorTask */
 }
 
 /**

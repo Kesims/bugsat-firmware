@@ -3,6 +3,7 @@
  *
  *  Created on: Aug 18, 2023
  *      Author: sam
+ *      Modified for BMP390 by: Matej Neumann
  */
 
 

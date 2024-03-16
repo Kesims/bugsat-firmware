@@ -61,6 +61,8 @@ void Error_Handler(void);
 /* Private defines -----------------------------------------------------------*/
 #define BTN_USER_Pin GPIO_PIN_3
 #define BTN_USER_GPIO_Port GPIOC
+#define SPI3_CS_Pin GPIO_PIN_4
+#define SPI3_CS_GPIO_Port GPIOA
 #define LORA_RST_Pin GPIO_PIN_12
 #define LORA_RST_GPIO_Port GPIOB
 #define LORA_DIO0_Pin GPIO_PIN_13
@@ -89,6 +91,11 @@ void Error_Handler(void);
 #define LED_GREEN_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
+
+// ----- GENERAL SETTINGS -----
+
+#define ENABLE_DEBUG_MESSAGES 1
+
 
 /* USER CODE END Private defines */
 
