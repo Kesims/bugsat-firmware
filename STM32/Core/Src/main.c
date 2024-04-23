@@ -30,6 +30,7 @@
 #include "debug_printf.h"
 #include <stdio.h>
 #include "indicator_utils.h"
+#include "SX1278.h"
 
 /* USER CODE END Includes */
 
@@ -72,16 +73,23 @@ osStaticThreadDef_t sensorReadTaskControlBlock;
 osThreadId indicatorTaskHandle;
 uint32_t indicatorTaskBuffer[ 256 ];
 osStaticThreadDef_t indicatorTaskControlBlock;
+osSemaphoreId GPS_Task_SemaphoreHandle;
+osStaticSemaphoreDef_t GPS_Task_SemaphoreControlBlock;
 /* USER CODE BEGIN PV */
 
+// BMP390 Handle
 BMP390_HandleTypeDef hbmp390;
 
-//Mount the SD Card
+//SD Card
 FATFS fs;  // file system
 FIL fil; // File
 FILINFO fno;
 FRESULT fresult;  // result
 UINT br, bw;  // File read/write count
+
+// SX1278
+SX1278_hw_t SX1278_hw;
+SX1278_t SX1278;
 
 /* USER CODE END PV */
 
@@ -123,6 +131,11 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
     }
 
 }
+
+//// override SX1278 to use osDelay
+//void SX1278_hw_DelayMs(uint32_t msec) {
+//    osDelay(msec);
+//}
 
 /* USER CODE END 0 */
 
@@ -166,6 +179,34 @@ int main(void)
   MX_TIM17_Init();
   MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
+  
+    // Prepare the LoRa SX1278 module
+    //initialize LoRa module
+    SX1278_hw.dio0.port = LORA_DIO0_GPIO_Port;
+    SX1278_hw.dio0.pin = LORA_DIO0_Pin;
+    SX1278_hw.nss.port = LORA_NSS_GPIO_Port;
+    SX1278_hw.nss.pin = LORA_NSS_Pin;
+    SX1278_hw.reset.port = LORA_RST_GPIO_Port;
+    SX1278_hw.reset.pin = LORA_RST_Pin;
+    SX1278_hw.spi = &hspi1;
+
+    SX1278.hw = &SX1278_hw;
+
+    printf("Configuring LoRa module\r\n");
+    SX1278_init_with_sync_word(&SX1278, 433000000, SX1278_POWER_20DBM, SX1278_LORA_SF_10,
+                SX1278_LORA_BW_125KHZ, SX1278_LORA_CR_4_5, SX1278_LORA_CRC_EN, 10, 0x79); // PacketLength is the maximum size of a LoRa packet payload
+    printf("Done configuring LoRaModule\r\n");
+
+   SX1278_LoRaEntryTx(&SX1278, 16, 2000);
+
+//    if (master == 1) {
+//        ret = SX1278_LoRaEntryTx(&SX1278, 16, 2000);
+//        HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
+//    } else {
+//        ret = SX1278_LoRaEntryRx(&SX1278, 16, 2000);
+//        HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
+//    }
+
 
     debugPrint("Device starting...\n");
 
@@ -204,6 +245,11 @@ int main(void)
   /* USER CODE BEGIN RTOS_MUTEX */
   /* add mutexes, ... */
   /* USER CODE END RTOS_MUTEX */
+
+  /* Create the semaphores(s) */
+  /* definition and creation of GPS_Task_Semaphore */
+  osSemaphoreStaticDef(GPS_Task_Semaphore, &GPS_Task_SemaphoreControlBlock);
+  GPS_Task_SemaphoreHandle = osSemaphoreCreate(osSemaphore(GPS_Task_Semaphore), 1);
 
   /* USER CODE BEGIN RTOS_SEMAPHORES */
   /* add semaphores, ... */
@@ -366,17 +412,17 @@ static void MX_SPI1_Init(void)
   hspi1.Instance = SPI1;
   hspi1.Init.Mode = SPI_MODE_MASTER;
   hspi1.Init.Direction = SPI_DIRECTION_2LINES;
-  hspi1.Init.DataSize = SPI_DATASIZE_4BIT;
+  hspi1.Init.DataSize = SPI_DATASIZE_8BIT;
   hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
-  hspi1.Init.NSS = SPI_NSS_HARD_OUTPUT;
-  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;
+  hspi1.Init.NSS = SPI_NSS_SOFT;
+  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_32;
   hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
   hspi1.Init.CRCPolynomial = 7;
   hspi1.Init.CRCLength = SPI_CRC_LENGTH_DATASIZE;
-  hspi1.Init.NSSPMode = SPI_NSS_PULSE_ENABLE;
+  hspi1.Init.NSSPMode = SPI_NSS_PULSE_DISABLE;
   if (HAL_SPI_Init(&hspi1) != HAL_OK)
   {
     Error_Handler();
@@ -684,7 +730,7 @@ static void MX_USART3_UART_Init(void)
 
   /* USER CODE END USART3_Init 1 */
   huart3.Instance = USART3;
-  huart3.Init.BaudRate = 115200;
+  huart3.Init.BaudRate = 9600;
   huart3.Init.WordLength = UART_WORDLENGTH_8B;
   huart3.Init.StopBits = UART_STOPBITS_1;
   huart3.Init.Parity = UART_PARITY_NONE;
@@ -741,7 +787,10 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(GPIOA, SPI3_CS_Pin|TRIGGER_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, LORA_RST_Pin|LED_RED_Pin|LED_GREEN_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, LORA_NSS_Pin|LORA_RST_Pin, GPIO_PIN_SET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOB, LED_RED_Pin|LED_GREEN_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pins : BTN_USER_Pin BMP_INT_Pin LIS3_INT1_Pin LIS3_INT2_Pin */
   GPIO_InitStruct.Pin = BTN_USER_Pin|BMP_INT_Pin|LIS3_INT1_Pin|LIS3_INT2_Pin;
@@ -756,6 +805,13 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
+  /*Configure GPIO pin : LORA_NSS_Pin */
+  GPIO_InitStruct.Pin = LORA_NSS_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(LORA_NSS_GPIO_Port, &GPIO_InitStruct);
+
   /*Configure GPIO pins : LORA_RST_Pin LED_RED_Pin LED_GREEN_Pin */
   GPIO_InitStruct.Pin = LORA_RST_Pin|LED_RED_Pin|LED_GREEN_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
@@ -763,8 +819,14 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : LORA_DIO0_Pin LORA_DIO1_Pin LORA_DIO2_Pin */
-  GPIO_InitStruct.Pin = LORA_DIO0_Pin|LORA_DIO1_Pin|LORA_DIO2_Pin;
+  /*Configure GPIO pin : LORA_DIO0_Pin */
+  GPIO_InitStruct.Pin = LORA_DIO0_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(LORA_DIO0_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : LORA_DIO1_Pin LORA_DIO2_Pin */
+  GPIO_InitStruct.Pin = LORA_DIO1_Pin|LORA_DIO2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
@@ -795,53 +857,84 @@ static void MX_GPIO_Init(void)
   * @param  argument: Not used
   * @retval None
   */
+
+
+char buffer[512];
+
+int message;
+int message_length;
+
+uint8_t ret;
+
+uint8_t Rx_data[1];
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+    printf("%c", Rx_data[0]);
+    HAL_UART_Receive_IT(&huart3, Rx_data, 1);
+}
+
+
+
+
 /* USER CODE END Header_StartDefaultTask */
 void StartDefaultTask(void const * argument)
 {
   /* USER CODE BEGIN 5 */
-    fresult = f_mount(&fs, "/", 1);    //1=mount now
+//    fresult = f_mount(&fs, "/", 1);    //1=mount now
+//
+//    if (fresult != FR_OK)
+//    {
+//        debugPrintf("No SD Card found : (%i)\r\n", fresult);
+//    }
+//    debugPrint("SD Card Mounted Successfully!!!\r\n");
+//    //Read the SD Card Total size and Free Size
+//    FATFS *pfs;
+//    DWORD fre_clust;
+//    uint32_t totalSpace, freeSpace;
+//    f_getfree("", &fre_clust, &pfs);
+//    totalSpace = (uint32_t)((pfs->n_fatent - 2) * pfs->csize * 0.5);
+//    freeSpace = (uint32_t)(fre_clust * pfs->csize * 0.5);
+//    printf("TotalSpace : %lu bytes, FreeSpace = %lu bytes\n", totalSpace, freeSpace);
+//    //Open the file
+//    fresult = f_open(&fil, "test.txt", FA_WRITE | FA_READ | FA_CREATE_ALWAYS);
+//    if(fresult != FR_OK)
+//    {
+//        printf("File creation/open Error : (%i)\r\n", fresult);
+//    }
+//    printf("Writing data!!!\r\n");
+//    //write the data
+//    f_puts("Cansat test input on the SD card.", &fil);
+//    //close your file
+//    f_close(&fil);
 
-    if (fresult != FR_OK)
-    {
-        debugPrintf("No SD Card found : (%i)\r\n", fresult);
-    }
-    debugPrint("SD Card Mounted Successfully!!!\r\n");
-    //Read the SD Card Total size and Free Size
-    FATFS *pfs;
-    DWORD fre_clust;
-    uint32_t totalSpace, freeSpace;
-    f_getfree("", &fre_clust, &pfs);
-    totalSpace = (uint32_t)((pfs->n_fatent - 2) * pfs->csize * 0.5);
-    freeSpace = (uint32_t)(fre_clust * pfs->csize * 0.5);
-    printf("TotalSpace : %lu bytes, FreeSpace = %lu bytes\n", totalSpace, freeSpace);
-    //Open the file
-    fresult = f_open(&fil, "test.txt", FA_WRITE | FA_READ | FA_CREATE_ALWAYS);
-    if(fresult != FR_OK)
-    {
-        printf("File creation/open Error : (%i)\r\n", fresult);
-    }
-    printf("Writing data!!!\r\n");
-    //write the data
-    f_puts("Cansat test input on the SD card.", &fil);
-    //close your file
-    f_close(&fil);
+
+
+    HAL_UART_Receive_IT (&huart3, Rx_data, 1);
 
 
   /* Infinite loop */
+    osDelay(5000);
     for(;;)
     {
-        uint32_t startTick = HAL_GetTick();
-        uint32_t currentTick;
-
-        do {
-//            HAL_GPIO_TogglePin(PIEZO_GPIO_Port, PIEZO_Pin);
-            for(int i = 0; i < 2800; i++)
-            currentTick = HAL_GetTick();
-        } while((currentTick - startTick) < 180);
-
-        osDelay(820);
+        osDelay(1000);
         HAL_GPIO_TogglePin(LED_RED_GPIO_Port, LED_RED_Pin);
         HAL_GPIO_TogglePin(LED_GREEN_GPIO_Port, LED_GREEN_Pin);
+//        printf("Master ...\r\n");
+//        printf("Sending package...\r\n");
+
+        message_length = sprintf(buffer, "Hello %d", message);
+        ret = SX1278_LoRaEntryTx(&SX1278, message_length, 2000);
+//        printf("Entry: %d\r\n", ret);
+        osDelay(10);
+
+//        printf("Sending %s\r\n", buffer);
+        ret = SX1278_LoRaTxPacket(&SX1278, (uint8_t*) buffer,
+                                  message_length, 2000);
+//        printf("Tx: %d\r\n", ret);
+        osDelay(10);
+        message += 1;
+//        printf("LoRa package sent...\r\n");
     }
   /* USER CODE END 5 */
 }
@@ -875,10 +968,10 @@ void StartSensorReadTask(void const * argument)
         {
             debugPrintf("Error reading raw pressure and temperature: error %d\n", res);
         }
-        debugPrintf("Raw Pressure: %lu, Raw Temperature: %lu, Time: %lu\n", raw_pressure, raw_temperature, time);
+//        debugPrintf("Raw Pressure: %lu, Raw Temperature: %lu, Time: %lu\n", raw_pressure, raw_temperature, time);
         BMP390_CompensateRawPressTemp(&hbmp390, raw_pressure, raw_temperature, &pressure, &temperature);
         osDelay(100);
-        debugPrintf("Pressure: %f, Temperature: %f\n", pressure, temperature);
+//        debugPrintf("Pressure: %f, Temperature: %f\n", pressure, temperature);
         osDelay(900);
     }
 
@@ -899,11 +992,11 @@ void StartIndicatorTask(void const * argument)
   indicate_startup();
   debugPrint("Indicator task started\n");
   /* Infinite loop */
-//  for(;;)
-//  {
-//    process_indication_state();
-//    osDelay(1);
-//  }
+  for(;;)
+  {
+      // do indication stuff
+    osDelay(1000);
+  }
   /* USER CODE END StartIndicatorTask */
 }
 

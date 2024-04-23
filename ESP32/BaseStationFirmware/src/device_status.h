@@ -1,0 +1,7 @@
+#ifndef BASESTATIONFIRMWARE_DEVICE_STATUS_H
+#define BASESTATIONFIRMWARE_DEVICE_STATUS_H
+
+float get_battery_voltage();
+byte get_battery_level();
+
+#endif //BASESTATIONFIRMWARE_DEVICE_STATUS_H
