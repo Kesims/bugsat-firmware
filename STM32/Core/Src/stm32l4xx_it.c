@@ -22,6 +22,7 @@
 #include "stm32l4xx_it.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <stdbool.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -44,6 +45,13 @@
 
 extern uint16_t sd_timer_1, sd_timer_2;          /* 1ms SD Timer Counter */
 
+extern volatile bool lora_send_gps;
+extern volatile bool lora_send_sensor;
+extern volatile bool lora_send_battery;
+extern volatile bool lora_send_status;
+uint32_t lora_timer = 0;
+
+
 
 /* USER CODE END PV */
 
@@ -60,6 +68,7 @@ extern uint16_t sd_timer_1, sd_timer_2;          /* 1ms SD Timer Counter */
 /* External variables --------------------------------------------------------*/
 extern DMA_HandleTypeDef hdma_tim8_ch1;
 extern TIM_HandleTypeDef htim3;
+extern TIM_HandleTypeDef htim16;
 extern TIM_HandleTypeDef htim17;
 extern UART_HandleTypeDef huart1;
 extern UART_HandleTypeDef huart3;
@@ -166,6 +175,36 @@ void DebugMon_Handler(void)
 /* For the available peripheral interrupt handler names,                      */
 /* please refer to the startup file (startup_stm32l4xx.s).                    */
 /******************************************************************************/
+
+/**
+  * @brief This function handles TIM1 update interrupt and TIM16 global interrupt.
+  */
+void TIM1_UP_TIM16_IRQHandler(void)
+{
+  /* USER CODE BEGIN TIM1_UP_TIM16_IRQn 0 */
+
+  /* USER CODE END TIM1_UP_TIM16_IRQn 0 */
+  HAL_TIM_IRQHandler(&htim16);
+  /* USER CODE BEGIN TIM1_UP_TIM16_IRQn 1 */
+
+    // -- 1-second timer
+    lora_timer++;
+    if(lora_timer % 5 == 0) {
+        lora_send_gps = true;
+    }
+    if(lora_timer % 60 == 0) {
+        lora_send_battery = true;
+        lora_send_status = true;
+    }
+    lora_send_sensor = true;
+
+
+
+    // reset the timer
+    HAL_TIM_Base_Start_IT(&htim16);
+
+  /* USER CODE END TIM1_UP_TIM16_IRQn 1 */
+}
 
 /**
   * @brief This function handles TIM1 trigger and commutation interrupts and TIM17 global interrupt.

@@ -45,6 +45,7 @@ void display_update() {
 
     // print status
     display_print_status_bar();
+    display_print_lora_status();
 
     xSemaphoreTake(i2c_gatekeeper, 250);
     display.display();
@@ -77,5 +78,21 @@ void display_print_status_bar() {
 
     //draw line bellow to make it stand out from info below
     display.drawLine(0, 9, 127, 9, WHITE);
+}
+
+
+//TODO rework into something nicer
+extern uint64_t last_lora_receive;
+extern int last_rssi;
+extern float last_snr;
+
+void display_print_lora_status() {
+    // Clear the display area
+    display.fillRect(0, 10, 128, 54, BLACK);
+    display.setCursor(0, 12); // Set the cursor to the next line
+    display.println("Last RCV: " + String((millis()-last_lora_receive)/1000) + "s ago");
+    display.println("RSSI: " + String(last_rssi));
+    display.println("SNR: " + String(last_snr));
+    // If you want to print the content of the last message, you need to store it in a variable and print it here
 }
 

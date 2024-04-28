@@ -8,6 +8,8 @@
 #include "STATIC_CONFIG.h"
 
 uint64_t last_lora_receive = 0;
+int last_rssi = -1;
+float last_snr = -1;
 
 void lora_init() {
     LoRa.setPins(LORA_SS, LORA_RST, LORA_DIO0);
@@ -50,6 +52,8 @@ void on_lora_receive(int packetSize) {
     }
 
     last_lora_receive = millis();
+    last_rssi = LoRa.packetRssi();
+    last_snr = LoRa.packetSnr();
 
     debugPrintln("Received packet: " + incoming);
     debugPrintln("RSSI: " + String(LoRa.packetRssi()) + " SNR: " + String(LoRa.packetSnr()));

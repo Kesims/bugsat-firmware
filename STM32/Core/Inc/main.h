@@ -69,6 +69,8 @@ void Error_Handler(void);
 #define GPS_RX_GPIO_Port GPIOC
 #define LORA_NSS_Pin GPIO_PIN_0
 #define LORA_NSS_GPIO_Port GPIOB
+#define BATREF_Pin GPIO_PIN_1
+#define BATREF_GPIO_Port GPIOB
 #define LORA_RST_Pin GPIO_PIN_12
 #define LORA_RST_GPIO_Port GPIOB
 #define LORA_DIO0_Pin GPIO_PIN_13

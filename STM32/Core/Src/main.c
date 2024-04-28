@@ -25,12 +25,14 @@
 /* USER CODE BEGIN Includes */
 
 #include "lis3dh_reg.h"
-#include "lis3dh_driver.h"
 #include "BMP390.h"
 #include "debug_printf.h"
 #include <stdio.h>
 #include "indicator_utils.h"
 #include "SX1278.h"
+#include "gps_driver.h"
+#include "lora_handler.h"
+#include "sensors_handler.h"
 
 /* USER CODE END Includes */
 
@@ -50,6 +52,8 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+ADC_HandleTypeDef hadc1;
+
 I2C_HandleTypeDef hi2c1;
 
 SPI_HandleTypeDef hspi1;
@@ -57,6 +61,7 @@ SPI_HandleTypeDef hspi3;
 
 TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim8;
+TIM_HandleTypeDef htim16;
 TIM_HandleTypeDef htim17;
 DMA_HandleTypeDef hdma_tim8_ch1;
 
@@ -70,15 +75,17 @@ osStaticThreadDef_t defaultTaskControlBlock;
 osThreadId sensorReadTaskHandle;
 uint32_t sensorReadTaskBuffer[ 512 ];
 osStaticThreadDef_t sensorReadTaskControlBlock;
-osThreadId indicatorTaskHandle;
-uint32_t indicatorTaskBuffer[ 256 ];
-osStaticThreadDef_t indicatorTaskControlBlock;
+osThreadId gpsParsingTaskHandle;
+uint32_t gpsParsingTaskBuffer[ 256 ];
+osStaticThreadDef_t gpsParsingTaskControlBlock;
 osSemaphoreId GPS_Task_SemaphoreHandle;
 osStaticSemaphoreDef_t GPS_Task_SemaphoreControlBlock;
+osSemaphoreId Sensor_Buffer_SemaphoreHandle;
+osStaticSemaphoreDef_t LoRa_Send_SemaphoreControlBlock;
+osSemaphoreId GPS_Buffer_SemaphoreHandle;
+osStaticSemaphoreDef_t GPS_Buffer_SemaphoreControlBlock;
 /* USER CODE BEGIN PV */
 
-// BMP390 Handle
-BMP390_HandleTypeDef hbmp390;
 
 //SD Card
 FATFS fs;  // file system
@@ -87,9 +94,6 @@ FILINFO fno;
 FRESULT fresult;  // result
 UINT br, bw;  // File read/write count
 
-// SX1278
-SX1278_hw_t SX1278_hw;
-SX1278_t SX1278;
 
 /* USER CODE END PV */
 
@@ -106,9 +110,11 @@ static void MX_TIM8_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_TIM17_Init(void);
 static void MX_TIM3_Init(void);
+static void MX_TIM16_Init(void);
+static void MX_ADC1_Init(void);
 void StartDefaultTask(void const * argument);
 void StartSensorReadTask(void const * argument);
-void StartIndicatorTask(void const * argument);
+void startGpsParsingTask(void const * argument);
 
 /* USER CODE BEGIN PFP */
 
@@ -130,6 +136,17 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
         // Transmission completed
     }
 
+}
+
+
+uint8_t usart3_rx_buff[1];
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+    if(huart->Instance == USART3) {
+//        printf("%c", Rx_data[0]);
+        gps_uart_callback(usart3_rx_buff[0]);
+        HAL_UART_Receive_IT(&huart3, usart3_rx_buff, 1);
+    }
 }
 
 //// override SX1278 to use osDelay
@@ -178,40 +195,16 @@ int main(void)
   MX_FATFS_Init();
   MX_TIM17_Init();
   MX_TIM3_Init();
+  MX_TIM16_Init();
+  MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
   
-    // Prepare the LoRa SX1278 module
-    //initialize LoRa module
-    SX1278_hw.dio0.port = LORA_DIO0_GPIO_Port;
-    SX1278_hw.dio0.pin = LORA_DIO0_Pin;
-    SX1278_hw.nss.port = LORA_NSS_GPIO_Port;
-    SX1278_hw.nss.pin = LORA_NSS_Pin;
-    SX1278_hw.reset.port = LORA_RST_GPIO_Port;
-    SX1278_hw.reset.pin = LORA_RST_Pin;
-    SX1278_hw.spi = &hspi1;
+    // Initialize the lora module
+    lora_handler_init();
+    HAL_TIM_Base_Start_IT(&htim16);
 
-    SX1278.hw = &SX1278_hw;
-
-    printf("Configuring LoRa module\r\n");
-    SX1278_init_with_sync_word(&SX1278, 433000000, SX1278_POWER_20DBM, SX1278_LORA_SF_10,
-                SX1278_LORA_BW_125KHZ, SX1278_LORA_CR_4_5, SX1278_LORA_CRC_EN, 10, 0x79); // PacketLength is the maximum size of a LoRa packet payload
-    printf("Done configuring LoRaModule\r\n");
-
-   SX1278_LoRaEntryTx(&SX1278, 16, 2000);
-
-//    if (master == 1) {
-//        ret = SX1278_LoRaEntryTx(&SX1278, 16, 2000);
-//        HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
-//    } else {
-//        ret = SX1278_LoRaEntryRx(&SX1278, 16, 2000);
-//        HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
-//    }
-
-
-    debugPrint("Device starting...\n");
-
-
-    HAL_GPIO_TogglePin(LED_GREEN_GPIO_Port, LED_GREEN_Pin);
+    // Initialize the sensors
+    sensors_init();
 
     // PWM configuration for INDICATOR
     TIM8->CCR1 = 200; // This is the duty cycle (2800/3000 = 93.3% of time o// n, 6.7% of time off - and it lights when it is off)
@@ -223,22 +216,9 @@ int main(void)
 
 
 
-    // BMP390
-    hbmp390._hi2c = &hi2c1;
-    BMP390_Init(&hbmp390);
-
-//    printf("par_t1: %f\n", hbmp390._calib_data.par_t1);
-//    printf("par_t2: %f\n", hbmp390._calib_data.par_t2);
-//    printf("par_t3: %f\n", hbmp390._calib_data.par_t3);
-
-//    BMP390_StartNormalModeFIFO(&hbmp388);
-    BMP390_SetTempOS(&hbmp390, BMP390_NO_OVERSAMPLING);
-    BMP390_SetPressOS(&hbmp390, BMP390_OVERSAMPLING_8X);
-    BMP390_SetIIRFilterCoeff(&hbmp390, BMP3_IIR_FILTER_COEFF_7);
-    BMP390_SetOutputDataRate(&hbmp390, BMP3_ODR_25_HZ);
-
-
-
+    // Start callback listeners etc.
+    disable_unused_nmea_sentences(&huart3); // Send a command to GPS module to disable unused NMEA sentences
+    HAL_UART_Receive_IT (&huart3, usart3_rx_buff, 1); // Receive buffer for GPS data
 
   /* USER CODE END 2 */
 
@@ -250,6 +230,14 @@ int main(void)
   /* definition and creation of GPS_Task_Semaphore */
   osSemaphoreStaticDef(GPS_Task_Semaphore, &GPS_Task_SemaphoreControlBlock);
   GPS_Task_SemaphoreHandle = osSemaphoreCreate(osSemaphore(GPS_Task_Semaphore), 1);
+
+  /* definition and creation of Sensor_Buffer_Semaphore */
+  osSemaphoreStaticDef(Sensor_Buffer_Semaphore, &LoRa_Send_SemaphoreControlBlock);
+  Sensor_Buffer_SemaphoreHandle = osSemaphoreCreate(osSemaphore(Sensor_Buffer_Semaphore), 1);
+
+  /* definition and creation of GPS_Buffer_Semaphore */
+  osSemaphoreStaticDef(GPS_Buffer_Semaphore, &GPS_Buffer_SemaphoreControlBlock);
+  GPS_Buffer_SemaphoreHandle = osSemaphoreCreate(osSemaphore(GPS_Buffer_Semaphore), 1);
 
   /* USER CODE BEGIN RTOS_SEMAPHORES */
   /* add semaphores, ... */
@@ -272,9 +260,9 @@ int main(void)
   osThreadStaticDef(sensorReadTask, StartSensorReadTask, osPriorityNormal, 0, 512, sensorReadTaskBuffer, &sensorReadTaskControlBlock);
   sensorReadTaskHandle = osThreadCreate(osThread(sensorReadTask), NULL);
 
-  /* definition and creation of indicatorTask */
-  osThreadStaticDef(indicatorTask, StartIndicatorTask, osPriorityNormal, 0, 256, indicatorTaskBuffer, &indicatorTaskControlBlock);
-  indicatorTaskHandle = osThreadCreate(osThread(indicatorTask), NULL);
+  /* definition and creation of gpsParsingTask */
+  osThreadStaticDef(gpsParsingTask, startGpsParsingTask, osPriorityIdle, 0, 256, gpsParsingTaskBuffer, &gpsParsingTaskControlBlock);
+  gpsParsingTaskHandle = osThreadCreate(osThread(gpsParsingTask), NULL);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -343,6 +331,73 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+}
+
+/**
+  * @brief ADC1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_ADC1_Init(void)
+{
+
+  /* USER CODE BEGIN ADC1_Init 0 */
+
+  /* USER CODE END ADC1_Init 0 */
+
+  ADC_MultiModeTypeDef multimode = {0};
+  ADC_ChannelConfTypeDef sConfig = {0};
+
+  /* USER CODE BEGIN ADC1_Init 1 */
+
+  /* USER CODE END ADC1_Init 1 */
+
+  /** Common config
+  */
+  hadc1.Instance = ADC1;
+  hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV1;
+  hadc1.Init.Resolution = ADC_RESOLUTION_12B;
+  hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
+  hadc1.Init.ScanConvMode = ADC_SCAN_DISABLE;
+  hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
+  hadc1.Init.LowPowerAutoWait = DISABLE;
+  hadc1.Init.ContinuousConvMode = DISABLE;
+  hadc1.Init.NbrOfConversion = 1;
+  hadc1.Init.DiscontinuousConvMode = DISABLE;
+  hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+  hadc1.Init.DMAContinuousRequests = DISABLE;
+  hadc1.Init.Overrun = ADC_OVR_DATA_PRESERVED;
+  hadc1.Init.OversamplingMode = DISABLE;
+  if (HAL_ADC_Init(&hadc1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure the ADC multi-mode
+  */
+  multimode.Mode = ADC_MODE_INDEPENDENT;
+  if (HAL_ADCEx_MultiModeConfigChannel(&hadc1, &multimode) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Regular Channel
+  */
+  sConfig.Channel = ADC_CHANNEL_16;
+  sConfig.Rank = ADC_REGULAR_RANK_1;
+  sConfig.SamplingTime = ADC_SAMPLETIME_2CYCLES_5;
+  sConfig.SingleDiff = ADC_SINGLE_ENDED;
+  sConfig.OffsetNumber = ADC_OFFSET_NONE;
+  sConfig.Offset = 0;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN ADC1_Init 2 */
+
+  /* USER CODE END ADC1_Init 2 */
+
 }
 
 /**
@@ -613,6 +668,38 @@ static void MX_TIM8_Init(void)
 }
 
 /**
+  * @brief TIM16 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM16_Init(void)
+{
+
+  /* USER CODE BEGIN TIM16_Init 0 */
+
+  /* USER CODE END TIM16_Init 0 */
+
+  /* USER CODE BEGIN TIM16_Init 1 */
+
+  /* USER CODE END TIM16_Init 1 */
+  htim16.Instance = TIM16;
+  htim16.Init.Prescaler = 1023;
+  htim16.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim16.Init.Period = 62499;
+  htim16.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim16.Init.RepetitionCounter = 0;
+  htim16.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim16) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM16_Init 2 */
+
+  /* USER CODE END TIM16_Init 2 */
+
+}
+
+/**
   * @brief TIM17 Initialization Function
   * @param None
   * @retval None
@@ -798,12 +885,12 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : SPI3_CS_Pin TRIGGER_Pin */
-  GPIO_InitStruct.Pin = SPI3_CS_Pin|TRIGGER_Pin;
+  /*Configure GPIO pin : SPI3_CS_Pin */
+  GPIO_InitStruct.Pin = SPI3_CS_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+  HAL_GPIO_Init(SPI3_CS_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : LORA_NSS_Pin */
   GPIO_InitStruct.Pin = LORA_NSS_Pin;
@@ -831,6 +918,13 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
+  /*Configure GPIO pin : TRIGGER_Pin */
+  GPIO_InitStruct.Pin = TRIGGER_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(TRIGGER_GPIO_Port, &GPIO_InitStruct);
+
   /*Configure GPIO pins : H3LIS_INT1_Pin H3LIS_INT2_Pin */
   GPIO_InitStruct.Pin = H3LIS_INT1_Pin|H3LIS_INT2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
@@ -857,30 +951,14 @@ static void MX_GPIO_Init(void)
   * @param  argument: Not used
   * @retval None
   */
-
-
-char buffer[512];
-
-int message;
-int message_length;
-
-uint8_t ret;
-
-uint8_t Rx_data[1];
-
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
-{
-    printf("%c", Rx_data[0]);
-    HAL_UART_Receive_IT(&huart3, Rx_data, 1);
-}
-
-
-
-
 /* USER CODE END Header_StartDefaultTask */
 void StartDefaultTask(void const * argument)
 {
   /* USER CODE BEGIN 5 */
+
+    indicate_startup(); // beep on startup
+
+
 //    fresult = f_mount(&fs, "/", 1);    //1=mount now
 //
 //    if (fresult != FR_OK)
@@ -908,34 +986,11 @@ void StartDefaultTask(void const * argument)
 //    //close your file
 //    f_close(&fil);
 
-
-
-    HAL_UART_Receive_IT (&huart3, Rx_data, 1);
-
-
   /* Infinite loop */
-    osDelay(5000);
-    for(;;)
-    {
-        osDelay(1000);
-        HAL_GPIO_TogglePin(LED_RED_GPIO_Port, LED_RED_Pin);
-        HAL_GPIO_TogglePin(LED_GREEN_GPIO_Port, LED_GREEN_Pin);
-//        printf("Master ...\r\n");
-//        printf("Sending package...\r\n");
 
-        message_length = sprintf(buffer, "Hello %d", message);
-        ret = SX1278_LoRaEntryTx(&SX1278, message_length, 2000);
-//        printf("Entry: %d\r\n", ret);
-        osDelay(10);
-
-//        printf("Sending %s\r\n", buffer);
-        ret = SX1278_LoRaTxPacket(&SX1278, (uint8_t*) buffer,
-                                  message_length, 2000);
-//        printf("Tx: %d\r\n", ret);
-        osDelay(10);
-        message += 1;
-//        printf("LoRa package sent...\r\n");
-    }
+    // wait for sensors to measure first data before sending
+    osDelay(1500);
+    lora_task_work();
   /* USER CODE END 5 */
 }
 
@@ -953,51 +1008,22 @@ void StartSensorReadTask(void const * argument)
 {
   /* USER CODE BEGIN StartSensorReadTask */
   /* Infinite loop */
-//  lis3dh_read_fifo();
-
-// Get the raw data from the FIFO
-    uint32_t raw_pressure;
-    uint32_t raw_temperature;
-    uint32_t time;
-    float pressure;
-    float temperature;
-    int res;
-    while(1) {
-        res = BMP390_ReadRawPressTempTime(&hbmp390, &raw_pressure, &raw_temperature, &time);
-        if(res != HAL_OK)
-        {
-            debugPrintf("Error reading raw pressure and temperature: error %d\n", res);
-        }
-//        debugPrintf("Raw Pressure: %lu, Raw Temperature: %lu, Time: %lu\n", raw_pressure, raw_temperature, time);
-        BMP390_CompensateRawPressTemp(&hbmp390, raw_pressure, raw_temperature, &pressure, &temperature);
-        osDelay(100);
-//        debugPrintf("Pressure: %f, Temperature: %f\n", pressure, temperature);
-        osDelay(900);
-    }
-
-  // Now raw_data contains the raw data read from the FIFO
+  sensors_task_work();
   /* USER CODE END StartSensorReadTask */
 }
 
-/* USER CODE BEGIN Header_StartIndicatorTask */
+/* USER CODE BEGIN Header_startGpsParsingTask */
 /**
-* @brief Function implementing the indicatorTask thread.
+* @brief Function implementing the gpsParsingTask thread.
 * @param argument: Not used
 * @retval None
 */
-/* USER CODE END Header_StartIndicatorTask */
-void StartIndicatorTask(void const * argument)
+/* USER CODE END Header_startGpsParsingTask */
+void startGpsParsingTask(void const * argument)
 {
-  /* USER CODE BEGIN StartIndicatorTask */
-  indicate_startup();
-  debugPrint("Indicator task started\n");
-  /* Infinite loop */
-  for(;;)
-  {
-      // do indication stuff
-    osDelay(1000);
-  }
-  /* USER CODE END StartIndicatorTask */
+  /* USER CODE BEGIN startGpsParsingTask */
+  gps_parsing_task_work();
+  /* USER CODE END startGpsParsingTask */
 }
 
 /**
