@@ -1,3 +1,6 @@
+#include <math.h>
+#include <stdio.h>
+#include <string.h>
 #include "lora_handler.h"
 #include "SX1278.h"
 #include "cmsis_os.h"
@@ -39,8 +42,8 @@ void lora_handler_init() {
 
     SX1278.hw = &SX1278_hw;
 
-    SX1278_init_with_sync_word(&SX1278, 433000000, SX1278_POWER_20DBM, SX1278_LORA_SF_10,
-                               SX1278_LORA_BW_125KHZ, SX1278_LORA_CR_4_5, SX1278_LORA_CRC_EN, 10, 0x79); // PacketLength is the maximum size of a LoRa packet payload
+    SX1278_init_with_sync_word(&SX1278, 433000000, SX1278_POWER_14DBM, SX1278_LORA_SF_9,
+                               SX1278_LORA_BW_250KHZ, SX1278_LORA_CR_4_5, SX1278_LORA_CRC_EN, 10, 0x79); // PacketLength is the maximum size of a LoRa packet payload
 
     SX1278_LoRaEntryTx(&SX1278, 16, 2000);
 }
@@ -61,10 +64,17 @@ uint8_t determine_packet_length(enum PacketType packetType) {
 }
 
 void send_packet(LoraPacket packet) {
-    uint8_t message_length = determine_packet_length(GPS_DATA);
+    uint8_t message_length = determine_packet_length(packet.packetType) + 2; // 2 is packet header
+    // Prepare the packet
+    SX1278_LoRaEntryTx(&SX1278, message_length, 250);
     // Send packet
-    SX1278_LoRaTxPacket(&SX1278, (uint8_t*) &packet,
-                        message_length+2, 100);
+    uint8_t packet_buffer[message_length];
+    packet_buffer[0] = packet.packetId;
+    packet_buffer[1] = packet.packetType;
+    memcpy(&packet_buffer[2], packet.data, message_length - 2);
+    SX1278_LoRaTxPacket(&SX1278, packet_buffer,
+                        message_length, 250);
+    osDelay(25);
 }
 
 void send_gps_data() {
@@ -90,8 +100,10 @@ void send_gps_data() {
 
 void send_sensor_data() {
     LoraSensorData sensor_data = {0};
+
+    uint16_t converted_temperature = (uint16_t) roundf(bmp390_data.temperature * 100);
 //    if(xSemaphoreTake(Sensor_Buffer_SemaphoreHandle, 120) == pdTRUE) {
-        sensor_data.temperature = bmp390_data.temperature;
+        sensor_data.temperature = converted_temperature;
         sensor_data.pressure = bmp390_data.pressure;
         sensor_data.accelerationX = lis3dh_highg.accelerationX;
         sensor_data.accelerationY = lis3dh_highg.accelerationY;

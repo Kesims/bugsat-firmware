@@ -68,13 +68,13 @@ void sensors_init() {
     /*  Enable Block Data Update */
     lis3dh_block_data_update_set(&dev_ctx, PROPERTY_ENABLE);
     /* Set Output Data Rate to 25 hz */
-    lis3dh_data_rate_set(&dev_ctx, LIS3DH_ODR_10Hz);
+    lis3dh_data_rate_set(&dev_ctx, LIS3DH_ODR_100Hz);
     /* Set full scale to 2 g */
     lis3dh_full_scale_set(&dev_ctx, LIS3DH_16g);
     /* Set operating mode to high resolution */
     lis3dh_operating_mode_set(&dev_ctx, LIS3DH_HR_12bit);
     /* Set FIFO watermark to 25 samples */
-    lis3dh_fifo_watermark_set(&dev_ctx, 10);
+    lis3dh_fifo_watermark_set(&dev_ctx, 100);
     /* Set FIFO mode to Stream mode: Accumulate samples and
      * override old data */
     lis3dh_fifo_mode_set(&dev_ctx, LIS3DH_DYNAMIC_STREAM_MODE);

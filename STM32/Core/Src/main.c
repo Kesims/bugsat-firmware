@@ -70,13 +70,13 @@ UART_HandleTypeDef huart2;
 UART_HandleTypeDef huart3;
 
 osThreadId defaultTaskHandle;
-uint32_t defaultTaskBuffer[ 2048 ];
+uint32_t defaultTaskBuffer[ 4096 ];
 osStaticThreadDef_t defaultTaskControlBlock;
 osThreadId sensorReadTaskHandle;
-uint32_t sensorReadTaskBuffer[ 512 ];
+uint32_t sensorReadTaskBuffer[ 1024 ];
 osStaticThreadDef_t sensorReadTaskControlBlock;
 osThreadId gpsParsingTaskHandle;
-uint32_t gpsParsingTaskBuffer[ 256 ];
+uint32_t gpsParsingTaskBuffer[ 1024 ];
 osStaticThreadDef_t gpsParsingTaskControlBlock;
 osSemaphoreId GPS_Task_SemaphoreHandle;
 osStaticSemaphoreDef_t GPS_Task_SemaphoreControlBlock;
@@ -253,15 +253,15 @@ int main(void)
 
   /* Create the thread(s) */
   /* definition and creation of defaultTask */
-  osThreadStaticDef(defaultTask, StartDefaultTask, osPriorityNormal, 0, 2048, defaultTaskBuffer, &defaultTaskControlBlock);
+  osThreadStaticDef(defaultTask, StartDefaultTask, osPriorityNormal, 0, 4096, defaultTaskBuffer, &defaultTaskControlBlock);
   defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
 
   /* definition and creation of sensorReadTask */
-  osThreadStaticDef(sensorReadTask, StartSensorReadTask, osPriorityNormal, 0, 512, sensorReadTaskBuffer, &sensorReadTaskControlBlock);
+  osThreadStaticDef(sensorReadTask, StartSensorReadTask, osPriorityNormal, 0, 1024, sensorReadTaskBuffer, &sensorReadTaskControlBlock);
   sensorReadTaskHandle = osThreadCreate(osThread(sensorReadTask), NULL);
 
   /* definition and creation of gpsParsingTask */
-  osThreadStaticDef(gpsParsingTask, startGpsParsingTask, osPriorityIdle, 0, 256, gpsParsingTaskBuffer, &gpsParsingTaskControlBlock);
+  osThreadStaticDef(gpsParsingTask, startGpsParsingTask, osPriorityIdle, 0, 1024, gpsParsingTaskBuffer, &gpsParsingTaskControlBlock);
   gpsParsingTaskHandle = osThreadCreate(osThread(gpsParsingTask), NULL);
 
   /* USER CODE BEGIN RTOS_THREADS */
@@ -957,7 +957,6 @@ void StartDefaultTask(void const * argument)
   /* USER CODE BEGIN 5 */
 
     indicate_startup(); // beep on startup
-
 
 //    fresult = f_mount(&fs, "/", 1);    //1=mount now
 //

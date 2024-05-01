@@ -14,7 +14,7 @@ typedef struct {
 } GNGGA_Info;
 
 typedef struct GPSData {
-    uint16_t seconds_since_midnight;
+    uint32_t seconds_since_midnight;
     float latitude;
     float longitude;
     uint16_t altitude;

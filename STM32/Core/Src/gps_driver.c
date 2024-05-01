@@ -98,7 +98,7 @@ void gps_uart_callback(char rx_char) {
 }
 
 // Convert time in HHMMSS format to seconds since midnight
-static uint16_t time_to_seconds(const char* time) {
+static uint32_t time_to_seconds(const char* time) {
     uint16_t hours = (time[0] - '0') * 10 + (time[1] - '0');
     uint16_t minutes = (time[2] - '0') * 10 + (time[3] - '0');
     uint16_t seconds = (time[4] - '0') * 10 + (time[5] - '0');
@@ -116,7 +116,7 @@ _Noreturn void gps_parsing_task_work() {
             parse_GNGGA(gps_rx_buffer, &info);
 
             // Now do stuff with the parsed data
-//            // For now, just print it
+            // For now, just print it
 //            debugPrintf("Time: %s\n", info.time);
 //            osDelay(2);
 //            debugPrintf("Latitude: %f\n", info.latitude);
@@ -131,14 +131,14 @@ _Noreturn void gps_parsing_task_work() {
 //            osDelay(2);
 
             // Convert time to seconds since midnight
-            if( xSemaphoreTake(GPS_Buffer_SemaphoreHandle, portMAX_DELAY) == pdTRUE) {
+//            if( xSemaphoreTake(GPS_Buffer_SemaphoreHandle, portMAX_DELAY) == pdTRUE) {
                 gps_buffer.seconds_since_midnight = time_to_seconds(info.time);
                 gps_buffer.latitude = (float) info.latitude;
                 gps_buffer.longitude = (float) info.longitude;
                 gps_buffer.altitude = (uint16_t) info.altitude;
                 gps_buffer.hdop = (float) info.hdop;
-                xSemaphoreGive(GPS_Buffer_SemaphoreHandle);
-            }
+//                xSemaphoreGive(GPS_Buffer_SemaphoreHandle);
+//            }
         }
     }
 }

@@ -11,7 +11,7 @@ enum PacketType {
 };
 
 typedef struct LoraGPSData { // send every 5 seconds
-    uint16_t seconds_since_midnight;
+    uint32_t seconds_since_midnight;
     float latitude;
     float longitude;
     uint16_t altitude;
@@ -19,7 +19,7 @@ typedef struct LoraGPSData { // send every 5 seconds
 } LoraGPSData;
 
 typedef struct LoraSensorData { // send every second
-    float temperature;
+    uint16_t temperature; // 365.88 deg C -> 36588
     float pressure;
     float accelerationX;
     float accelerationY;
