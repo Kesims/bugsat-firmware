@@ -9,6 +9,7 @@
 #include <string.h>
 #include "main.h"
 #include "stm32l4xx_hal.h"
+#include "cmsis_os.h"
 
 __weak void SX1278_hw_init(SX1278_hw_t * hw) {
 	SX1278_hw_SetNSS(hw, 1);
@@ -50,7 +51,8 @@ __weak uint8_t SX1278_hw_SPIReadByte(SX1278_hw_t * hw) {
 }
 
 __weak void SX1278_hw_DelayMs(uint32_t msec) {
-	HAL_Delay(msec);
+//	HAL_Delay(msec);
+    osDelay(msec);
 }
 
 __weak int SX1278_hw_GetDIO0(SX1278_hw_t * hw) {

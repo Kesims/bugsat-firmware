@@ -4,6 +4,7 @@
 #include "gps_driver.h"
 #include "cmsis_os.h"
 #include "debug_printf.h"
+#include "bug_deployment.h"
 
 #define MAX_NMEA_SENTENCE_LENGTH 100
 
@@ -132,6 +133,9 @@ _Noreturn void gps_parsing_task_work() {
 
             // Convert time to seconds since midnight
 //            if( xSemaphoreTake(GPS_Buffer_SemaphoreHandle, portMAX_DELAY) == pdTRUE) {
+                add_altitude_to_buffer((float) info.altitude);
+                check_start_deployment_process();
+
                 gps_buffer.seconds_since_midnight = time_to_seconds(info.time);
                 gps_buffer.latitude = (float) info.latitude;
                 gps_buffer.longitude = (float) info.longitude;

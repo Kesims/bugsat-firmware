@@ -26,4 +26,20 @@ void indicate_error() {
         HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_1);
         osDelay(200);
     }
+    // set red LED off
+    HAL_GPIO_WritePin(LED_RED_GPIO_Port, LED_RED_Pin, GPIO_PIN_RESET);
+}
+
+void indicate_info() {
+    // set green LED on
+    HAL_GPIO_WritePin(LED_GREEN_GPIO_Port, LED_GREEN_Pin, GPIO_PIN_SET);
+    // do 3 extra short beeps
+    for (int i = 0; i < 3; i++) {
+        HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
+        osDelay(100);
+        HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_1);
+        osDelay(100);
+    }
+    // set green LED off
+    HAL_GPIO_WritePin(LED_GREEN_GPIO_Port, LED_GREEN_Pin, GPIO_PIN_RESET);
 }

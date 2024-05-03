@@ -33,6 +33,8 @@
 #include "gps_driver.h"
 #include "lora_handler.h"
 #include "sensors_handler.h"
+#include "uart_nrf52.h"
+#include "device_config.h"
 
 /* USER CODE END Includes */
 
@@ -61,6 +63,7 @@ SPI_HandleTypeDef hspi3;
 
 TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim8;
+TIM_HandleTypeDef htim15;
 TIM_HandleTypeDef htim16;
 TIM_HandleTypeDef htim17;
 DMA_HandleTypeDef hdma_tim8_ch1;
@@ -78,6 +81,9 @@ osStaticThreadDef_t sensorReadTaskControlBlock;
 osThreadId gpsParsingTaskHandle;
 uint32_t gpsParsingTaskBuffer[ 1024 ];
 osStaticThreadDef_t gpsParsingTaskControlBlock;
+osThreadId uartTaskHandle;
+uint32_t uartTaskBuffer[ 2048 ];
+osStaticThreadDef_t uartTaskControlBlock;
 osSemaphoreId GPS_Task_SemaphoreHandle;
 osStaticSemaphoreDef_t GPS_Task_SemaphoreControlBlock;
 osSemaphoreId Sensor_Buffer_SemaphoreHandle;
@@ -112,9 +118,11 @@ static void MX_TIM17_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_TIM16_Init(void);
 static void MX_ADC1_Init(void);
+static void MX_TIM15_Init(void);
 void StartDefaultTask(void const * argument);
 void StartSensorReadTask(void const * argument);
 void startGpsParsingTask(void const * argument);
+void StartUartTask(void const * argument);
 
 /* USER CODE BEGIN PFP */
 
@@ -146,6 +154,9 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 //        printf("%c", Rx_data[0]);
         gps_uart_callback(usart3_rx_buff[0]);
         HAL_UART_Receive_IT(&huart3, usart3_rx_buff, 1);
+    }
+    if(huart->Instance == USART2) {
+        on_nrf_uart_receive();
     }
 }
 
@@ -197,7 +208,11 @@ int main(void)
   MX_TIM3_Init();
   MX_TIM16_Init();
   MX_ADC1_Init();
+  MX_TIM15_Init();
   /* USER CODE BEGIN 2 */
+
+    // Start by loading the configuration from flash
+    load_device_config();
   
     // Initialize the lora module
     lora_handler_init();
@@ -214,6 +229,9 @@ int main(void)
     TIM3->CCR1 = 14000;
 //    HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1); // Do not start the PWM right away.
 
+
+    // Initialize comm to nRF52
+    init_nrf_uart_comm();
 
 
     // Start callback listeners etc.
@@ -263,6 +281,10 @@ int main(void)
   /* definition and creation of gpsParsingTask */
   osThreadStaticDef(gpsParsingTask, startGpsParsingTask, osPriorityIdle, 0, 1024, gpsParsingTaskBuffer, &gpsParsingTaskControlBlock);
   gpsParsingTaskHandle = osThreadCreate(osThread(gpsParsingTask), NULL);
+
+  /* definition and creation of uartTask */
+  osThreadStaticDef(uartTask, StartUartTask, osPriorityIdle, 0, 2048, uartTaskBuffer, &uartTaskControlBlock);
+  uartTaskHandle = osThreadCreate(osThread(uartTask), NULL);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -668,6 +690,46 @@ static void MX_TIM8_Init(void)
 }
 
 /**
+  * @brief TIM15 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM15_Init(void)
+{
+
+  /* USER CODE BEGIN TIM15_Init 0 */
+
+  /* USER CODE END TIM15_Init 0 */
+
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM15_Init 1 */
+
+  /* USER CODE END TIM15_Init 1 */
+  htim15.Instance = TIM15;
+  htim15.Init.Prescaler = 58623;
+  htim15.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim15.Init.Period = 65501;
+  htim15.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim15.Init.RepetitionCounter = 0;
+  htim15.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_OnePulse_Init(&htim15, TIM_OPMODE_SINGLE) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim15, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM15_Init 2 */
+
+  /* USER CODE END TIM15_Init 2 */
+
+}
+
+/**
   * @brief TIM16 Initialization Function
   * @param None
   * @retval None
@@ -1023,6 +1085,26 @@ void startGpsParsingTask(void const * argument)
   /* USER CODE BEGIN startGpsParsingTask */
   gps_parsing_task_work();
   /* USER CODE END startGpsParsingTask */
+}
+
+/* USER CODE BEGIN Header_StartUartTask */
+/**
+* @brief Function implementing the uartTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartUartTask */
+void StartUartTask(void const * argument)
+{
+  /* USER CODE BEGIN StartUartTask */
+  /* Infinite loop */
+  for(;;)
+  {
+      process_uart_tx();
+      process_uart_rx();
+      osDelay(25);
+  }
+  /* USER CODE END StartUartTask */
 }
 
 /**

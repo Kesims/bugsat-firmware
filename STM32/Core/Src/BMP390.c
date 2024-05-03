@@ -10,6 +10,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "BMP390.h"
 #include "math.h"
+#include "cmsis_os.h"
 
 /* ----- PRIVATE FUNCTIONS PROTOTYPES ----- */
 HAL_StatusTypeDef	BMP390_SoftReset(BMP390_HandleTypeDef *bmp);
@@ -358,7 +359,7 @@ HAL_StatusTypeDef BMP390_SoftReset(BMP390_HandleTypeDef *bmp){
 		rslt = BMP390_WriteBytes(bmp, CMD, &rst_cmnd, 1);
 		if(rslt == HAL_OK){
 			// 2 ms pause then check ERR reg
-			HAL_Delay(2);
+			osDelay(2);
 			rslt = BMP390_ReadBytes(bmp, ERR_REG, &cmd_err_status, 1);
 			if((cmd_err_status & CMD) || (rslt != HAL_OK)){
 				return rslt;

@@ -51,6 +51,9 @@ extern volatile bool lora_send_battery;
 extern volatile bool lora_send_status;
 uint32_t lora_timer = 0;
 
+uint32_t decoupler_counter = 0;
+extern bool bugs_deployed;
+
 
 
 /* USER CODE END PV */
@@ -68,6 +71,7 @@ uint32_t lora_timer = 0;
 /* External variables --------------------------------------------------------*/
 extern DMA_HandleTypeDef hdma_tim8_ch1;
 extern TIM_HandleTypeDef htim3;
+extern TIM_HandleTypeDef htim15;
 extern TIM_HandleTypeDef htim16;
 extern TIM_HandleTypeDef htim17;
 extern UART_HandleTypeDef huart1;
@@ -175,6 +179,37 @@ void DebugMon_Handler(void)
 /* For the available peripheral interrupt handler names,                      */
 /* please refer to the startup file (startup_stm32l4xx.s).                    */
 /******************************************************************************/
+
+/**
+  * @brief This function handles TIM1 break interrupt and TIM15 global interrupt.
+  */
+void TIM1_BRK_TIM15_IRQHandler(void)
+{
+  /* USER CODE BEGIN TIM1_BRK_TIM15_IRQn 0 */
+
+  /* USER CODE END TIM1_BRK_TIM15_IRQn 0 */
+  HAL_TIM_IRQHandler(&htim15);
+  /* USER CODE BEGIN TIM1_BRK_TIM15_IRQn 1 */
+
+    // -- 60 s timer for decoupler release, should run 4 times
+    decoupler_counter++;
+    if(decoupler_counter == 4) {
+        // Run the decoupler for one minute
+        HAL_GPIO_WritePin(TRIGGER_GPIO_Port, TRIGGER_Pin, GPIO_PIN_RESET);
+        bugs_deployed = true;
+    }
+    if(decoupler_counter == 5) {
+        // Stop the decoupler after a minute, that should be long enough for the resistors to break down
+        HAL_GPIO_WritePin(TRIGGER_GPIO_Port, TRIGGER_Pin, GPIO_PIN_SET);
+        decoupler_counter = 0;
+        return;
+    }
+    // Start timer one-pulse
+    HAL_TIM_Base_Start_IT(&htim15);
+
+
+  /* USER CODE END TIM1_BRK_TIM15_IRQn 1 */
+}
 
 /**
   * @brief This function handles TIM1 update interrupt and TIM16 global interrupt.

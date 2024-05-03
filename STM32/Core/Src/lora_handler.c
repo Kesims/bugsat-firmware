@@ -7,12 +7,14 @@
 #include "battery_voltage.h"
 #include "sensors_handler.h"
 #include "gps_driver.h"
+#include "device_config.h"
 
 SX1278_hw_t SX1278_hw;
 SX1278_t SX1278;
 extern SPI_HandleTypeDef hspi1;
 extern osSemaphoreId GPS_Buffer_SemaphoreHandle;
 extern osSemaphoreId Sensor_Buffer_SemaphoreHandle;
+extern DeviceConfig device_config;
 
 volatile bool lora_send_gps = false;
 volatile bool lora_send_sensor = false;
@@ -42,8 +44,15 @@ void lora_handler_init() {
 
     SX1278.hw = &SX1278_hw;
 
-    SX1278_init_with_sync_word(&SX1278, 433000000, SX1278_POWER_14DBM, SX1278_LORA_SF_9,
-                               SX1278_LORA_BW_250KHZ, SX1278_LORA_CR_4_5, SX1278_LORA_CRC_EN, 10, 0x79); // PacketLength is the maximum size of a LoRa packet payload
+    SX1278_init_with_sync_word(&SX1278,
+                               device_config.lora_frequency,
+                               resolve_lora_tx_power(device_config.lora_tx_power),
+                               resolve_lora_spreading_factor(device_config.lora_spreading_factor),
+                               resolve_lora_bandwidth(device_config.lora_bandwidth),
+                               SX1278_LORA_CR_4_5,
+                               SX1278_LORA_CRC_EN,
+                               10,
+                               device_config.lora_sync_word);
 
     SX1278_LoRaEntryTx(&SX1278, 16, 2000);
 }
