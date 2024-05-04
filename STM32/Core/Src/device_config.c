@@ -2,6 +2,8 @@
 #include "device_config.h"
 #include "SX1278.h"
 #include "indicator_utils.h"
+#include "debug_printf.h"
+#include "cmsis_os.h"
 
 DeviceConfig device_config = {
         .lora_frequency = 433000000,
@@ -89,12 +91,20 @@ void load_device_config() {
         indicate_error();
         write_config_to_flash(); // This overrides the config with the default values
     }
-}
 
-
-static uint32_t get_page(uint32_t Addr) // Single Bank Device
-{
-    return((Addr - FLASH_BASE) / FLASH_PAGE_SIZE);
+    // Print out the loaded configuration
+    debugPrint("Loaded configuration: \n");
+    HAL_Delay(2);
+    debugPrintf("LoRa Frequency: %lu\n", device_config.lora_frequency);
+    HAL_Delay(2);
+    debugPrintf("LoRa TX Power: %u\n", device_config.lora_tx_power);
+    HAL_Delay(2);
+    debugPrintf("LoRa Bandwidth: %lu\n", device_config.lora_bandwidth);
+    HAL_Delay(2);
+    debugPrintf("LoRa Sync Word: %u\n", device_config.lora_sync_word);
+    HAL_Delay(2);
+    debugPrintf("LoRa Spreading Factor: %u\n", device_config.lora_spreading_factor);
+    HAL_Delay(2);
 }
 
 // Function to write data to the flash memory
@@ -105,23 +115,33 @@ void write_flash(uint8_t *data, uint32_t size)
     FLASH_EraseInitTypeDef EraseInitStruct = {0};
     uint32_t addr = DEVICE_CONFIG_ADDRESS; // 64-bit aligned
     uint64_t value;
-    uint32_t PageError;
+    uint32_t PageError = 0x0;
 
     size = (size + 7) & ~7; // Round to 64-bit words
 
     // Unlock the flash memory for writing
-    HAL_FLASH_Unlock();
+    HAL_StatusTypeDef status = HAL_FLASH_Unlock();
+    if (status != HAL_OK) {
+        // Unlock failed, handle accordingly
+        debugPrint("Flash unlock failed\n");
+        return;
+    }
 
     /* Clear OPTVERR bit set on virgin samples */
     __HAL_FLASH_CLEAR_FLAG(FLASH_FLAG_OPTVERR);
+    __HAL_FLASH_CLEAR_FLAG(FLASH_FLAG_ALL_ERRORS);
+
+    HAL_FLASH_OB_Unlock();
 
     /* Fill EraseInit structure, spanning size of write operation */
     EraseInitStruct.TypeErase   = FLASH_TYPEERASE_PAGES;
-    EraseInitStruct.Banks       = FLASH_BANK_1;
-    EraseInitStruct.Page        = get_page(addr); // Starting Page
-    EraseInitStruct.NbPages     = get_page(addr + size) - EraseInitStruct.Page + 1; // Page Count, at least 1
+    EraseInitStruct.Banks       = FLASH_BANK_2;
+    EraseInitStruct.Page        = 31; // Starting Page
+    EraseInitStruct.NbPages     = 1; // Page Count, at least 1
 
-    if (HAL_FLASHEx_Erase(&EraseInitStruct, &PageError) != HAL_OK)
+    uint8_t err = HAL_FLASHEx_Erase(&EraseInitStruct, &PageError);
+//    err = HAL_FLASHEx_Erase(&EraseInitStruct, &PageError);
+    if (err != HAL_OK)
     {
         // Insert code to handle the error here
 
@@ -138,8 +158,6 @@ void write_flash(uint8_t *data, uint32_t size)
 
         if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_DOUBLEWORD, addr, value) != HAL_OK)
         {
-            // Insert code to handle the error here
-
             HAL_FLASH_Lock();
             return;
         }
@@ -149,6 +167,7 @@ void write_flash(uint8_t *data, uint32_t size)
     }
 
     // Lock the flash memory after writing is complete
+    HAL_FLASH_OB_Lock();
     HAL_FLASH_Lock();
 }
 

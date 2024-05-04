@@ -9,7 +9,6 @@ extern UART_HandleTypeDef huart2;
 
 volatile bool tx_lock = false;
 volatile uint64_t tx_lock_time = 0;
-uint8_t tx_send_length = 0;
 uint8_t tx_buffer[UART_TX_BUFFER_SIZE];
 uint8_t tx_queue_buffer[UART_TX_BUFFER_SIZE*TX_QUEUE_BUFFER_ITEM_COUNT];
 uint8_t tx_queue_item_count = 0;
@@ -82,7 +81,7 @@ void send_uart_packet(uart_packet_t packet) {
 
     // Send the packet over UART with interrupt
     //LOG_PRINT(LOG_LEVEL_DBG, "Sending packet over UART...\n");
-    tx_send_length = 4 + 3 + packet.data_length + 4; // 4 preamble, 3 header, data, 4 crc
+    uint8_t tx_send_length = 4 + 3 + packet.data_length + 4; // 4 preamble, 3 header, data, 4 crc
     HAL_UART_Transmit_IT(&huart2, tx_buffer, tx_send_length);
 }
 
@@ -107,9 +106,6 @@ void clear_rx() {
     rx_buffer_index = 0;
     memset(rx_buffer, 0, UART_RX_BUFFER_SIZE);
     memset(preamble_rx_buffer, 0, 4);
-
-    //LOG_PRINT(LOG_LEVEL_DBG, "RX buffer cleared.\n");
-
     HAL_UART_Receive_IT(&huart2, rx_buffer, 1);
 }
 
@@ -133,6 +129,7 @@ void on_nrf_uart_receive() {
     if(detect_preamble()) {
         // New packet is being received
         uart_rx_state = WAITING_FOR_COMMAND;
+        debugPrint("Preamble detected.\n");
         clear_rx(); // Clear the rx buffer, the preamble is not needed anymore
         return;
     }
@@ -204,6 +201,7 @@ void process_uart_rx() { // Should be run in uart task loop
     memcpy(&received_crc, &rx_buffer[3 + packet.data_length], sizeof(received_crc));
     if(crc != received_crc) {
         debugPrint("Received packet with invalid CRC, ignoring...\n");
+        debugPrintf("Received CRC: %lu, Calculated CRC: %lu\n", received_crc, crc);
         clear_rx();
         uart_rx_processing_ready = false;
         uart_rx_state = WAITING_FOR_PREAMBLE;
@@ -223,6 +221,7 @@ void process_uart_rx() { // Should be run in uart task loop
             } else {
                 debugPrintf("Invalid LoRa frequency: %d\n", frequency);
             }
+            uart_send_lora_frequency();
             break;
         case GET_LORA_FREQ:
             debugPrint("GET_LORA_FREQ command received.\n");
@@ -240,6 +239,7 @@ void process_uart_rx() { // Should be run in uart task loop
             } else {
                 debugPrintf("Invalid LoRa bandwidth: %d\n", bandwidth);
             }
+            uart_send_lora_bandwidth();
             break;
         case GET_LORA_BW:
             debugPrint("GET_LORA_BW command received.\n");
@@ -257,6 +257,7 @@ void process_uart_rx() { // Should be run in uart task loop
             } else {
                 debugPrintf("Invalid LoRa sync word: %d\n", sync_word);
             }
+            uart_send_lora_sync_word();
             break;
         case GET_LORA_SYNC_WORD:
             debugPrint("GET_LORA_SYNC_WORD command received.\n");
@@ -274,6 +275,7 @@ void process_uart_rx() { // Should be run in uart task loop
             } else {
                 debugPrintf("Invalid LoRa spreading factor: %d\n", spreading_factor);
             }
+            uart_send_lora_spreading_factor();
             break;
         case GET_LORA_SPREADING_FACTOR:
             debugPrint("GET_LORA_SPREADING_FACTOR command received.\n");
@@ -291,6 +293,7 @@ void process_uart_rx() { // Should be run in uart task loop
             } else {
                 debugPrintf("Invalid LoRa TX power: %d\n", tx_power);
             }
+            uart_send_lora_tx_power();
             break;
         case GET_LORA_TX_POWER:
             debugPrint("GET_LORA_TX_POWER command received.\n");
@@ -298,6 +301,7 @@ void process_uart_rx() { // Should be run in uart task loop
             break;
         case STM_REBOOT:
             debugPrint("STM32 reboot command received.\n");
+            osDelay(15);
             HAL_NVIC_SystemReset();
             break;
         default:

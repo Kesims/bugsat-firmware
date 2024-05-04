@@ -1,12 +1,16 @@
-#ifndef STM32_UART_NRF52_H
-#define STM32_UART_NRF52_H
+#ifndef CANSAT_BLE_UART_STM_H
+#define CANSAT_BLE_UART_STM_H
 
-#include "main.h"
+#include <stdint.h>
 
-#define UART_TX_BUFFER_SIZE 256
-#define UART_RX_BUFFER_SIZE 256
-#define TX_QUEUE_BUFFER_STEP UART_TX_BUFFER_SIZE
-#define TX_QUEUE_BUFFER_ITEM_COUNT 5
+#define CRC32_POLYNOMIAL 0xEDB88320
+
+#define RECEIVE_TIMEOUT 20
+#define UART_BUFF_SIZE 256
+#define PRE_RX_BUFF_SIZE 100
+#define TX_QUEUE_BUFFER_STEP UART_BUFF_SIZE
+#define TX_QUEUE_BUFFER_ITEM_COUNT 4
+
 
 enum command_type_t {
     SET_LORA_FREQ = 0x01,
@@ -30,6 +34,7 @@ enum uart_state_t {
     WAITING_FOR_DATA_LENGTH = 0x03,
     WAITING_FOR_DATA = 0x04,
     WAITING_FOR_CRC = 0x05,
+    PRE_WAITING = 0x06,
 };
 
 typedef struct uart_packet_t {
@@ -44,17 +49,21 @@ typedef struct uart_tx_queue_item_t {
     struct uart_tx_queue_item_t *next;
 } uart_tx_queue_item_t;
 
+
+void uart_stm_init();
 void clear_rx();
-void init_nrf_uart_comm();
-void on_nrf_uart_receive();
 void process_uart_rx();
-void process_uart_tx();
+void on_stm_uart_receive();
+void uart_set_lora_frequency();
+void uart_set_lora_bandwidth();
+void uart_set_lora_sync_word();
+void uart_set_lora_spreading_factor();
+void uart_set_lora_tx_power();
+void uart_get_lora_frequency();
+void uart_get_lora_bandwidth();
+void uart_get_lora_sync_word();
+void uart_get_lora_spreading_factor();
+void uart_get_lora_tx_power();
+void uart_reboot_stm();
 
-void uart_send_lora_frequency();
-void uart_send_lora_bandwidth();
-void uart_send_lora_sync_word();
-void uart_send_lora_spreading_factor();
-void uart_send_lora_tx_power();
-
-
-#endif //STM32_UART_NRF52_H
+#endif //CANSAT_BLE_UART_STM_H

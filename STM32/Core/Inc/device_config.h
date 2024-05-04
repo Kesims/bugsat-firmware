@@ -5,7 +5,7 @@
 #include "main.h"
 
 #define CRC32_POLYNOMIAL 0xEDB88320
-#define DEVICE_CONFIG_ADDRESS 0x0800ff800
+#define DEVICE_CONFIG_ADDRESS 0x0808F800
 
 
 typedef struct DeviceConfig {

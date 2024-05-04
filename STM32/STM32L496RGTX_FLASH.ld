@@ -47,8 +47,8 @@ MEMORY
 {
   RAM    (xrw)    : ORIGIN = 0x20000000,   LENGTH = 320K
   RAM2    (xrw)    : ORIGIN = 0x10000000,   LENGTH = 64K
-  FLASH    (rx)    : ORIGIN = 0x8000000,   LENGTH = 1024K - 2K
-  DEVICE_DATA (rx)  : ORIGIN = 0x800ff800, LENGTH = 2K
+  FLASH    (rx)    : ORIGIN = 0x8000000,   LENGTH = 1024K - 512K
+  DEVICE_DATA (rx)  : ORIGIN = 0x80080000, LENGTH = 512K
 }
 
 /* Sections */

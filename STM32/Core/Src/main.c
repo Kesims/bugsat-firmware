@@ -100,6 +100,8 @@ FILINFO fno;
 FRESULT fresult;  // result
 UINT br, bw;  // File read/write count
 
+extern volatile bool tx_lock;
+
 
 /* USER CODE END PV */
 
@@ -142,6 +144,9 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
     if (huart->Instance == USART1)
     {
         // Transmission completed
+    }
+    if(huart->Instance == USART2) {
+        tx_lock = false;
     }
 
 }
@@ -844,12 +849,12 @@ static void MX_USART2_UART_Init(void)
 
   /* USER CODE END USART2_Init 1 */
   huart2.Instance = USART2;
-  huart2.Init.BaudRate = 115200;
+  huart2.Init.BaudRate = 9600;
   huart2.Init.WordLength = UART_WORDLENGTH_8B;
   huart2.Init.StopBits = UART_STOPBITS_1;
   huart2.Init.Parity = UART_PARITY_NONE;
   huart2.Init.Mode = UART_MODE_TX_RX;
-  huart2.Init.HwFlowCtl = UART_HWCONTROL_RTS_CTS;
+  huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
   huart2.Init.OverSampling = UART_OVERSAMPLING_16;
   huart2.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
   huart2.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
@@ -1017,8 +1022,8 @@ static void MX_GPIO_Init(void)
 void StartDefaultTask(void const * argument)
 {
   /* USER CODE BEGIN 5 */
-
     indicate_startup(); // beep on startup
+    debugPrint("Device started!\n");
 
 //    fresult = f_mount(&fs, "/", 1);    //1=mount now
 //
@@ -1051,6 +1056,13 @@ void StartDefaultTask(void const * argument)
 
     // wait for sensors to measure first data before sending
     osDelay(1500);
+
+    for(;;)
+    {
+        // Send data to LoRa module
+        uart_send_lora_sync_word();
+        osDelay(15000);
+    }
     lora_task_work();
   /* USER CODE END 5 */
 }
@@ -1097,12 +1109,24 @@ void startGpsParsingTask(void const * argument)
 void StartUartTask(void const * argument)
 {
   /* USER CODE BEGIN StartUartTask */
+
+  // After restart send current configuration to sync with nRF52
+    osDelay(500);
+    uart_send_lora_bandwidth();
+    osDelay(20);
+    uart_send_lora_spreading_factor();
+    osDelay(20);
+    uart_send_lora_sync_word();
+    osDelay(20);
+    uart_send_lora_tx_power();
+    osDelay(20);
+    uart_send_lora_frequency();
   /* Infinite loop */
   for(;;)
   {
       process_uart_tx();
       process_uart_rx();
-      osDelay(25);
+      osDelay(3);
   }
   /* USER CODE END StartUartTask */
 }

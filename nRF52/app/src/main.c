@@ -7,6 +7,7 @@
 #include <hal/nrf_gpio.h>
 
 #include "components/bluetooth/bluetooth_core.h"
+#include "uart/uart_stm.h"
 
 LOG_MODULE_REGISTER(o_invader_main, LOG_LEVEL_DBG);
 
@@ -38,14 +39,16 @@ int main(void)
     nrf_gpio_cfg_output(LED_1);
     nrf_gpio_cfg_output(LED_2);
 
+    uart_stm_init();
+
     LOG_INF("All up and running!\n");
 
 
     while(1) {
-        nrf_gpio_pin_toggle(LED_1);
-        nrf_gpio_pin_toggle(LED_2);
-//        LOG_INF("TOGGLED\n");
-        k_msleep(SLEEP_TIME_MS);
+//        nrf_gpio_pin_toggle(LED_1);
+//        nrf_gpio_pin_toggle(LED_2);
+////        LOG_INF("TOGGLED\n");
+        k_sleep(K_MSEC(SLEEP_TIME_MS));
     }
 
 }
