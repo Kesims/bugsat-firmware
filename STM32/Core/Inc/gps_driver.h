@@ -19,6 +19,7 @@ typedef struct GPSData {
     float longitude;
     uint16_t altitude;
     float hdop;
+    uint8_t satellites;
 } GPSData;
 
 

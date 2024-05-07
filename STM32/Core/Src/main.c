@@ -35,6 +35,7 @@
 #include "sensors_handler.h"
 #include "uart_nrf52.h"
 #include "device_config.h"
+#include "sd_card_handler.h"
 
 /* USER CODE END Includes */
 
@@ -84,6 +85,9 @@ osStaticThreadDef_t gpsParsingTaskControlBlock;
 osThreadId uartTaskHandle;
 uint32_t uartTaskBuffer[ 2048 ];
 osStaticThreadDef_t uartTaskControlBlock;
+osThreadId sdCardTaskHandle;
+uint32_t sdCardTaskBuffer[ 4096 ];
+osStaticThreadDef_t sdCardTaskControlBlock;
 osSemaphoreId GPS_Task_SemaphoreHandle;
 osStaticSemaphoreDef_t GPS_Task_SemaphoreControlBlock;
 osSemaphoreId Sensor_Buffer_SemaphoreHandle;
@@ -92,15 +96,8 @@ osSemaphoreId GPS_Buffer_SemaphoreHandle;
 osStaticSemaphoreDef_t GPS_Buffer_SemaphoreControlBlock;
 /* USER CODE BEGIN PV */
 
-
-//SD Card
-FATFS fs;  // file system
-FIL fil; // File
-FILINFO fno;
-FRESULT fresult;  // result
-UINT br, bw;  // File read/write count
-
 extern volatile bool tx_lock;
+extern DeviceConfig device_config;
 
 
 /* USER CODE END PV */
@@ -125,6 +122,7 @@ void StartDefaultTask(void const * argument);
 void StartSensorReadTask(void const * argument);
 void startGpsParsingTask(void const * argument);
 void StartUartTask(void const * argument);
+void startSdCardTask(void const * argument);
 
 /* USER CODE BEGIN PFP */
 
@@ -164,11 +162,6 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
         on_nrf_uart_receive();
     }
 }
-
-//// override SX1278 to use osDelay
-//void SX1278_hw_DelayMs(uint32_t msec) {
-//    osDelay(msec);
-//}
 
 /* USER CODE END 0 */
 
@@ -218,6 +211,20 @@ int main(void)
 
     // Start by loading the configuration from flash
     load_device_config();
+
+    // Print out the loaded configuration
+    debugPrint("Loaded configuration: \n");
+    HAL_Delay(2);
+    debugPrintf("LoRa Frequency: %lu\n", device_config.lora_frequency);
+    HAL_Delay(2);
+    debugPrintf("LoRa TX Power: %u\n", device_config.lora_tx_power);
+    HAL_Delay(2);
+    debugPrintf("LoRa Bandwidth: %lu\n", device_config.lora_bandwidth);
+    HAL_Delay(2);
+    debugPrintf("LoRa Sync Word: %u\n", device_config.lora_sync_word);
+    HAL_Delay(2);
+    debugPrintf("LoRa Spreading Factor: %u\n", device_config.lora_spreading_factor);
+    HAL_Delay(2);
   
     // Initialize the lora module
     lora_handler_init();
@@ -290,6 +297,10 @@ int main(void)
   /* definition and creation of uartTask */
   osThreadStaticDef(uartTask, StartUartTask, osPriorityIdle, 0, 2048, uartTaskBuffer, &uartTaskControlBlock);
   uartTaskHandle = osThreadCreate(osThread(uartTask), NULL);
+
+  /* definition and creation of sdCardTask */
+  osThreadStaticDef(sdCardTask, startSdCardTask, osPriorityIdle, 0, 4096, sdCardTaskBuffer, &sdCardTaskControlBlock);
+  sdCardTaskHandle = osThreadCreate(osThread(sdCardTask), NULL);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -1025,44 +1036,17 @@ void StartDefaultTask(void const * argument)
     indicate_startup(); // beep on startup
     debugPrint("Device started!\n");
 
-//    fresult = f_mount(&fs, "/", 1);    //1=mount now
-//
-//    if (fresult != FR_OK)
-//    {
-//        debugPrintf("No SD Card found : (%i)\r\n", fresult);
-//    }
-//    debugPrint("SD Card Mounted Successfully!!!\r\n");
-//    //Read the SD Card Total size and Free Size
-//    FATFS *pfs;
-//    DWORD fre_clust;
-//    uint32_t totalSpace, freeSpace;
-//    f_getfree("", &fre_clust, &pfs);
-//    totalSpace = (uint32_t)((pfs->n_fatent - 2) * pfs->csize * 0.5);
-//    freeSpace = (uint32_t)(fre_clust * pfs->csize * 0.5);
-//    printf("TotalSpace : %lu bytes, FreeSpace = %lu bytes\n", totalSpace, freeSpace);
-//    //Open the file
-//    fresult = f_open(&fil, "test.txt", FA_WRITE | FA_READ | FA_CREATE_ALWAYS);
-//    if(fresult != FR_OK)
-//    {
-//        printf("File creation/open Error : (%i)\r\n", fresult);
-//    }
-//    printf("Writing data!!!\r\n");
-//    //write the data
-//    f_puts("Cansat test input on the SD card.", &fil);
-//    //close your file
-//    f_close(&fil);
-
   /* Infinite loop */
 
     // wait for sensors to measure first data before sending
     osDelay(1500);
 
-    for(;;)
-    {
-        // Send data to LoRa module
-        uart_send_lora_sync_word();
-        osDelay(15000);
-    }
+//    for(;;)
+//    {
+//        // Send data to LoRa module
+//        uart_send_lora_sync_word();
+//        osDelay(15000);
+//    }
     lora_task_work();
   /* USER CODE END 5 */
 }
@@ -1129,6 +1113,26 @@ void StartUartTask(void const * argument)
       osDelay(3);
   }
   /* USER CODE END StartUartTask */
+}
+
+/* USER CODE BEGIN Header_startSdCardTask */
+/**
+* @brief Function implementing the sdCardTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_startSdCardTask */
+void startSdCardTask(void const * argument)
+{
+  /* USER CODE BEGIN startSdCardTask */
+  /* Infinite loop */
+    osDelay(1500);
+    init_sd_card();
+  for(;;)
+  {
+    sd_card_thread_work();
+  }
+  /* USER CODE END startSdCardTask */
 }
 
 /**

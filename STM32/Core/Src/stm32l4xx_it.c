@@ -53,6 +53,7 @@ uint32_t lora_timer = 0;
 
 uint32_t decoupler_counter = 0;
 extern bool bugs_deployed;
+extern bool write_to_sd;
 
 
 
@@ -224,6 +225,7 @@ void TIM1_UP_TIM16_IRQHandler(void)
   /* USER CODE BEGIN TIM1_UP_TIM16_IRQn 1 */
 
     // -- 1-second timer
+    write_to_sd = true;
     lora_timer++;
     if(lora_timer % 5 == 0) {
         lora_send_gps = true;

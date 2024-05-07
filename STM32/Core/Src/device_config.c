@@ -6,11 +6,11 @@
 #include "cmsis_os.h"
 
 DeviceConfig device_config = {
-        .lora_frequency = 433000000,
+        .lora_frequency = 434100000,
         .lora_tx_power = 14,
-        .lora_bandwidth = 250000,
+        .lora_bandwidth = 125000,
         .lora_sync_word = 0x79,
-        .lora_spreading_factor = 9,
+        .lora_spreading_factor = 8,
         .crc32 = 0
 };
 
@@ -91,20 +91,6 @@ void load_device_config() {
         indicate_error();
         write_config_to_flash(); // This overrides the config with the default values
     }
-
-    // Print out the loaded configuration
-    debugPrint("Loaded configuration: \n");
-    HAL_Delay(2);
-    debugPrintf("LoRa Frequency: %lu\n", device_config.lora_frequency);
-    HAL_Delay(2);
-    debugPrintf("LoRa TX Power: %u\n", device_config.lora_tx_power);
-    HAL_Delay(2);
-    debugPrintf("LoRa Bandwidth: %lu\n", device_config.lora_bandwidth);
-    HAL_Delay(2);
-    debugPrintf("LoRa Sync Word: %u\n", device_config.lora_sync_word);
-    HAL_Delay(2);
-    debugPrintf("LoRa Spreading Factor: %u\n", device_config.lora_spreading_factor);
-    HAL_Delay(2);
 }
 
 // Function to write data to the flash memory

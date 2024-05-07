@@ -133,6 +133,9 @@ _Noreturn void gps_parsing_task_work() {
 
             // Convert time to seconds since midnight
 //            if( xSemaphoreTake(GPS_Buffer_SemaphoreHandle, portMAX_DELAY) == pdTRUE) {
+
+
+                // A thing that handles bug deployment and definitely belongs into this module
                 add_altitude_to_buffer((float) info.altitude);
                 check_start_deployment_process();
 
@@ -141,6 +144,7 @@ _Noreturn void gps_parsing_task_work() {
                 gps_buffer.longitude = (float) info.longitude;
                 gps_buffer.altitude = (uint16_t) info.altitude;
                 gps_buffer.hdop = (float) info.hdop;
+                gps_buffer.satellites = (uint8_t) info.satellites;
 //                xSemaphoreGive(GPS_Buffer_SemaphoreHandle);
 //            }
         }
