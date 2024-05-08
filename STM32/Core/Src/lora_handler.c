@@ -8,6 +8,7 @@
 #include "sensors_handler.h"
 #include "gps_driver.h"
 #include "device_config.h"
+#include "bugpack_data_manager.h"
 
 SX1278_hw_t SX1278_hw;
 SX1278_t SX1278;
@@ -20,10 +21,13 @@ volatile bool lora_send_gps = false;
 volatile bool lora_send_sensor = false;
 volatile bool lora_send_battery = false;
 volatile bool lora_send_status = false;
+volatile bool lora_send_bugpack = false;
 
 extern BPM390BufferData bmp390_data;
 extern LIS3DHBufferData lis3dh_highg;
 extern GPSData gps_buffer;
+extern bool rocket_launch_detected;
+extern bool bugs_deployed;
 
 static uint8_t packet_id = 0;
 
@@ -142,8 +146,26 @@ void send_battery_data() {
     send_packet(packet);
 }
 
+
+
 void send_status_data() {
     LoraStatusData status_data = {0};
+
+
+    // set first bit to gps_ready = if altitude is not 0
+    if (gps_buffer.altitude != 0) {
+        status_data.status |= 1 << 0;
+    }
+
+    // set second bit launch detected
+    if (rocket_launch_detected) {
+        status_data.status |= 1 << 1;
+    }
+
+    // set third bit bugs deployed
+    if (bugs_deployed) {
+        status_data.status |= 1 << 2;
+    }
 
 
     LoraPacket packet;
@@ -153,6 +175,27 @@ void send_status_data() {
 
     send_packet(packet);
 }
+
+extern BugPackDataStorageWrapper bugpack_data_wrappers[BUGPACK_DATA_STORAGE_SIZE];
+
+void send_bugpack_data() {
+    // foreach bugpack data that was update within the past 30 seconds, send the status
+    for (int i = 0; i < BUGPACK_DATA_STORAGE_SIZE; i++) {
+        if (HAL_GetTick() - bugpack_data_wrappers[i].last_updated_tick < 30000  && bugpack_data_wrappers[i].bugpack_data.bugpack_id != 0) {
+            LoraBugpackData bugpack_data = {0};
+            bugpack_data.bugpack_id = bugpack_data_wrappers[i].bugpack_data.bugpack_id;
+            bugpack_data.battery_voltage = bugpack_data_wrappers[i].bugpack_data.battery_voltage;
+
+            LoraPacket packet;
+            packet.packetId = get_next_packet_id();
+            packet.packetType = BUGPACK_L_DATA;
+            packet.data = (uint8_t*) &bugpack_data;
+
+            send_packet(packet);
+        }
+    }
+
+};
 
 _Noreturn void lora_task_work() {
     for (;;) {
@@ -171,6 +214,10 @@ _Noreturn void lora_task_work() {
         if (lora_send_status) {
             send_status_data();
             lora_send_status = false;
+        }
+        if (lora_send_bugpack) {
+            send_bugpack_data();
+            lora_send_bugpack = false;
         }
         osDelay(50);
     }

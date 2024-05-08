@@ -8,7 +8,8 @@ enum PacketType {
     GPS_DATA = 1,
     SENSOR_DATA = 2,
     STATUS_DATA = 3,
-    PACKET_TYPE_MAX_VAL = 4
+    BUGPACK_L_DATA = 4,
+    PACKET_TYPE_MAX_VAL
 };
 
 typedef struct LoraGPSData { // send every 5 seconds
@@ -42,6 +43,11 @@ typedef struct LoraPacket {
     uint8_t packetType; // Packet type also determines the data length
     uint8_t* data;
 } LoraPacket;
+
+typedef struct LoraBugpackData {
+    uint8_t bugpack_id;
+    uint16_t battery_voltage;
+} LoraBugpackData;
 
 
 void check_lora_receiver();

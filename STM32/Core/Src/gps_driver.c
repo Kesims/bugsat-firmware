@@ -5,6 +5,7 @@
 #include "cmsis_os.h"
 #include "debug_printf.h"
 #include "bug_deployment.h"
+#include "uart_nrf52.h"
 
 #define MAX_NMEA_SENTENCE_LENGTH 100
 
@@ -138,6 +139,13 @@ _Noreturn void gps_parsing_task_work() {
                 // A thing that handles bug deployment and definitely belongs into this module
                 add_altitude_to_buffer((float) info.altitude);
                 check_start_deployment_process();
+
+            // Check if altitude has changed from 0 to a value or from a value to 0
+                if ((gps_buffer.altitude == 0 && info.altitude != 0) ||
+                    (gps_buffer.altitude != 0 && info.altitude == 0)) {
+                    uart_send_bugsat_status();
+                }
+
 
                 gps_buffer.seconds_since_midnight = time_to_seconds(info.time);
                 gps_buffer.latitude = (float) info.latitude;

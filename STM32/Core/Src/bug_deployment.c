@@ -1,6 +1,7 @@
 #include "bug_deployment.h"
 #include "indicator_utils.h"
 #include "stm32l4xx_hal.h"
+#include "uart_nrf52.h"
 #include <stdbool.h>
 
 #define BUFFER_SIZE 60
@@ -70,6 +71,8 @@ bool detect_rocket_launch() {
 void check_start_deployment_process() {
     if (detect_rocket_launch()) {
         HAL_TIM_Base_Start_IT(&htim15);
+        rocket_launch_detected = true;
         indicate_info();
+        uart_send_bugsat_status();
     }
 }

@@ -7,7 +7,9 @@ enum PacketType {
     BATTERY_DATA = 0,
     GPS_DATA = 1,
     SENSOR_DATA = 2,
-    STATUS_DATA = 3
+    STATUS_DATA = 3,
+    BUGPACK_L_DATA = 4,
+    MAX_VALUE
 };
 
 typedef struct LoraGPSData { // send every 5 seconds
@@ -31,7 +33,7 @@ typedef struct LoraBatteryData { // send every minute
 } LoraBatteryData;
 
 typedef struct LoraStatusData { // send every minute
-    uint8_t status; // first bit: GPS ready, second bit: trigger done
+    uint8_t status; // first bit: GPS ready, second bit: launch detected, third bit: bugs deployed
 } LoraStatusData;
 
 typedef struct LoraPacket {
@@ -39,6 +41,11 @@ typedef struct LoraPacket {
     uint8_t packetType; // Packet type also determines the data length
     uint8_t* data;
 } LoraPacket;
+
+typedef struct LoraBugpackData {
+    uint8_t bugpack_id;
+    uint16_t battery_voltage;
+} LoraBugpackData;
 
 void send_gps_data();
 void send_sensor_data();

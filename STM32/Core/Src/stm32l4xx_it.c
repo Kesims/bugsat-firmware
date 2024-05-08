@@ -20,6 +20,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "stm32l4xx_it.h"
+#include "uart_nrf52.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <stdbool.h>
@@ -49,6 +50,7 @@ extern volatile bool lora_send_gps;
 extern volatile bool lora_send_sensor;
 extern volatile bool lora_send_battery;
 extern volatile bool lora_send_status;
+extern volatile bool lora_send_bugpack;
 uint32_t lora_timer = 0;
 
 uint32_t decoupler_counter = 0;
@@ -199,6 +201,7 @@ void TIM1_BRK_TIM15_IRQHandler(void)
         // Run the decoupler for one minute
         HAL_GPIO_WritePin(TRIGGER_GPIO_Port, TRIGGER_Pin, GPIO_PIN_RESET);
         bugs_deployed = true;
+        uart_send_bugsat_status();
     }
     if(decoupler_counter == 5) {
         // Stop the decoupler after a minute, that should be long enough for the resistors to break down
@@ -233,6 +236,9 @@ void TIM1_UP_TIM16_IRQHandler(void)
     if(lora_timer % 60 == 0) {
         lora_send_battery = true;
         lora_send_status = true;
+    }
+    if(lora_timer % 33 == 0) {
+        lora_send_bugpack = true;
     }
     lora_send_sensor = true;
 

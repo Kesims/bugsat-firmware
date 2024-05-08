@@ -165,6 +165,11 @@ void process_received_packet(LoraPacket packet) {
             upload_status_data(packet.packetId, *status_data);
             break;
         }
+        case BUGPACK_L_DATA: {
+            LoraBugpackData* bugpack_data = (LoraBugpackData*) packet.data;
+            upload_bugpack_data(packet.packetId, *bugpack_data);
+            break;
+        }
         default:
             break;
     }

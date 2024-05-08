@@ -61,9 +61,15 @@ void upload_status_data(uint8_t packet_id, LoraStatusData status_data) { // Data
     JsonDocument jdata;
 
     jdata["packet_id"] = packet_id;
-    jdata["gps_ready"] = status_data.status;
-    jdata["landing_detected"] = status_data.status;
-    jdata["trigger_fired"] = status_data.status;
+
+// gps ready == first bit of status
+    jdata["gps_ready"] = status_data.status & 0x01;
+
+// second bit launch detected
+    jdata["launch_detected"] = (status_data.status >> 1) & 0x01;
+
+// third bit bugs deployed
+    jdata["bugs_deployed"] = (status_data.status >> 2) & 0x01;
 
     memset(upload_buffer, 0, UPLOAD_BUFFER_SIZE);
     serializeJson(jdata, upload_buffer, UPLOAD_BUFFER_SIZE);
@@ -109,6 +115,18 @@ void upload_battery_data(uint8_t packet_id, LoraBatteryData battery_data) {
     memset(upload_buffer, 0, UPLOAD_BUFFER_SIZE);
     serializeJson(jdata, upload_buffer, UPLOAD_BUFFER_SIZE);
     http_upload(String(API_ADDRESS) + "upload_battery_data");
+}
+
+void upload_bugpack_data(uint8_t packet_id, LoraBugpackData bugpack_data) {
+    JsonDocument jdata;
+
+    jdata["packet_id"] = packet_id;
+    jdata["bugpack_id"] = bugpack_data.bugpack_id;
+    jdata["battery_voltage"] = bugpack_data.battery_voltage;
+
+    memset(upload_buffer, 0, UPLOAD_BUFFER_SIZE);
+    serializeJson(jdata, upload_buffer, UPLOAD_BUFFER_SIZE);
+    http_upload(String(API_ADDRESS) + "upload_bugpack_data");
 }
 
 

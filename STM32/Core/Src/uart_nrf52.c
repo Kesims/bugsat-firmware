@@ -4,6 +4,8 @@
 #include "debug_printf.h"
 #include "cmsis_os.h"
 #include "device_config.h"
+#include "bugpack_data_manager.h"
+#include "gps_driver.h"
 
 extern UART_HandleTypeDef huart2;
 
@@ -81,7 +83,7 @@ void send_uart_packet(uart_packet_t packet) {
 
     // Send the packet over UART with interrupt
     //LOG_PRINT(LOG_LEVEL_DBG, "Sending packet over UART...\n");
-    uint8_t tx_send_length = 4 + 3 + packet.data_length + 4; // 4 preamble, 3 header, data, 4 crc
+    uint8_t tx_send_length = 4 + 3 + packet.data_length + 5; // 4 preamble, 3 header, data, 4 crc
     HAL_UART_Transmit_IT(&huart2, tx_buffer, tx_send_length);
 }
 
@@ -304,6 +306,18 @@ void process_uart_rx() { // Should be run in uart task loop
             osDelay(15);
             HAL_NVIC_SystemReset();
             break;
+        case BUGPACK_DATA:
+            debugPrint("BUGPACK_DATA command received.\n");
+            if(packet.data_length != sizeof(BugPackData)) {
+                debugPrint("Invalid data length for BUGPACK_DATA command.\n");
+                break;
+            }
+            set_bugpack_data((BugPackData *) packet.data);
+            break;
+        case GET_BUGSAT_STATUS:
+            debugPrint("GET_BUGSAT_STATUS command received.\n");
+            uart_send_bugsat_status();
+            break;
         default:
             debugPrintf("Unknown command type: %d\n", packet.command_type);
             break;
@@ -364,6 +378,33 @@ void uart_send_lora_tx_power() {
             .packet_id = get_next_packet_id(),
             .data_length = 1,
             .data = &tx_power
+    };
+    append_to_tx_queue(packet);
+}
+
+
+extern GPSData gps_buffer;
+extern bool rocket_launch_detected;
+extern bool bugs_deployed;
+
+void uart_send_bugsat_status() {
+    uint8_t bugsat_status = 0;
+
+    if (gps_buffer.altitude != 0) {
+        bugsat_status |= 0x01;
+    }
+    if(rocket_launch_detected) {
+        bugsat_status |= 0x02;
+    }
+    if(bugs_deployed) {
+        bugsat_status |= 0x04;
+    }
+
+    uart_packet_t packet = {
+            .command_type = GET_BUGSAT_STATUS,
+            .packet_id = get_next_packet_id(),
+            .data_length = 1,
+            .data = &bugsat_status
     };
     append_to_tx_queue(packet);
 }

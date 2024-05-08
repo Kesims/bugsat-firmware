@@ -1,4 +1,5 @@
 #include "uart_stm.h"
+#include "bluetooth/bugsat_status_service.h"
 #include <zephyr/device.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/kernel.h>
@@ -30,6 +31,10 @@ extern uint32_t lora_bandwidth;
 extern uint16_t lora_sync_word;
 extern uint8_t lora_spreading_factor;
 extern uint8_t lora_tx_power;
+
+extern bool gps_ready;
+extern bool launch_detected;
+extern bool bugs_deployed;
 
 
 static K_THREAD_STACK_DEFINE(uart_stack_area, 2048);
@@ -150,6 +155,8 @@ void uart_stm_init() {
     uart_get_lora_spreading_factor();
     k_sleep(K_MSEC(100));
     uart_get_lora_tx_power();
+    k_sleep(K_MSEC(100));
+    uard_send_bugsat_status();
 
     LOG_INF("Fetching current LoRa configuration from STM...");
 }
@@ -176,12 +183,17 @@ void send_uart_packet(uart_packet_t packet) {
 
     // Send the packet over UART with interrupt
     //LOG_PRINT(LOG_LEVEL_DBG, "Sending packet over UART...\n");
-    uint8_t tx_send_length = 4 + 3 + packet.data_length + 4; // 4 preamble, 3 header, data, 4 crc
+    uint8_t tx_send_length = 4 + 3 + packet.data_length + 5; // 4 preamble, 3 header, data, 4 crc
 //    HAL_UART_Transmit_IT(&huart2, tx_buffer, tx_send_length);
     uint8_t ret = uart_tx(uart, tx_buf, tx_send_length, SYS_FOREVER_MS);
     if (ret) {
         LOG_INF("Failed to send data over UART\n");
     }
+//    k_sleep(K_MSEC(100));
+//    ret = uart_tx(uart, tx_buf, tx_send_length, SYS_FOREVER_MS);
+//    if (ret) {
+//        LOG_INF("Failed to send data over UART\n");
+//    }
 }
 
 bool detect_preamble() {
@@ -309,6 +321,31 @@ void process_uart_rx() { // Should be run in separate task, not from IRQ!
             lora_tx_power = *packet.data;
             LOG_INF("Received LoRa TX power: %d\n", lora_tx_power);
             break;
+        case GET_BUGSAT_STATUS:
+            LOG_INF("Received request for Bugsat status, sending...\n");
+            uint8_t status = *packet.data;
+
+            if (status & 0x01) {
+                gps_ready = true;
+            } else {
+                gps_ready = true;
+            }
+            if (status & 0x02) {
+                launch_detected = true;
+            } else {
+                launch_detected = false;
+            }
+            if (status & 0x04) {
+                bugs_deployed = true;
+            } else {
+                bugs_deployed = false;
+            }
+
+            gps_notify();
+            launch_notify();
+            bugs_notify();
+
+            break;
         default:
             LOG_INF("Unknown command type");
             break;
@@ -421,6 +458,26 @@ void uart_get_lora_tx_power() {
 void uart_reboot_stm() {
     uart_packet_t packet = {
             .command_type = STM_REBOOT,
+            .packet_id = get_next_packet_id(),
+            .data_length = 0,
+            .data = NULL
+    };
+    send_uart_packet(packet);
+}
+
+void uart_send_bugpack_data(uint8_t *data, uint8_t length) {
+    uart_packet_t packet = {
+            .command_type = BUGPACK_DATA,
+            .packet_id = get_next_packet_id(),
+            .data_length = length,
+            .data = data
+    };
+    send_uart_packet(packet);
+}
+
+void uard_send_bugsat_status() {
+    uart_packet_t packet = {
+            .command_type = GET_BUGSAT_STATUS,
             .packet_id = get_next_packet_id(),
             .data_length = 0,
             .data = NULL

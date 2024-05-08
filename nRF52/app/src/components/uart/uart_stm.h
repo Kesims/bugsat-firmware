@@ -24,6 +24,8 @@ enum command_type_t {
     SET_LORA_TX_POWER = 0x09,
     GET_LORA_TX_POWER = 0x0A,
     STM_REBOOT = 0x0B,
+    BUGPACK_DATA = 0x0C,
+    GET_BUGSAT_STATUS = 0x0D,
     CONF_MAX_VALUE, // Used to determine the max value of the enum
 };
 
@@ -65,5 +67,7 @@ void uart_get_lora_sync_word();
 void uart_get_lora_spreading_factor();
 void uart_get_lora_tx_power();
 void uart_reboot_stm();
+void uart_send_bugpack_data(uint8_t *data, uint8_t length);
+void uard_send_bugsat_status();
 
 #endif //CANSAT_BLE_UART_STM_H
